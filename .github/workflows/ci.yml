@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: talentscope
+          POSTGRES_PASSWORD: talentscope
+          POSTGRES_DB: talentscope_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql://talentscope:talentscope@localhost:5432/talentscope_test
+          TEST_DATABASE_URL: postgresql://talentscope:talentscope@localhost:5432/talentscope_test
+          REDIS_URL: redis://localhost:6379/0
+        run: alembic upgrade head
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://talentscope:talentscope@localhost:5432/talentscope_test
+          TEST_DATABASE_URL: postgresql://talentscope:talentscope@localhost:5432/talentscope_test
+          REDIS_URL: redis://localhost:6379/0
+          ADZUNA_APP_ID: ""
+          ADZUNA_APP_KEY: ""
+        run: pytest tests/ -v --tb=short
