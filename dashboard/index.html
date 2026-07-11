@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TalentScope — Job Market Analytics</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d2e;
+      --surface2: #252840;
+      --border: #2e3250;
+      --accent: #6c63ff;
+      --accent2: #00d4aa;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --danger: #ff6b6b;
+      --warning: #ffd166;
+      --success: #06d6a0;
+      --radius: 12px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* Header */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .header-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    /* Main layout */
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    section {
+      margin-bottom: 2rem;
+    }
+
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 1rem;
+    }
+
+    /* Stats cards */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      transition: border-color 0.2s;
+    }
+
+    .stat-card:hover { border-color: var(--accent); }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .stat-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    .stat-card.accent .stat-value { color: var(--accent); }
+    .stat-card.green .stat-value { color: var(--accent2); }
+    .stat-card.yellow .stat-value { color: var(--warning); }
+    .stat-card.red .stat-value { color: var(--danger); }
+
+    /* Charts grid */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 900px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      box-shadow: var(--shadow);
+    }
+
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .chart-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .chart-controls {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .btn-group button {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-group button:hover,
+    .btn-group button.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 280px;
+    }
+
+    /* Search/Filter */
+    .search-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 1.5rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+      min-width: 160px;
+    }
+
+    .form-group label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    .form-group input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus { border-color: var(--accent); }
+    .form-group input::placeholder { color: var(--text-muted); }
+
+    .btn {
+      padding: 8px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 600;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: #5a52e0; }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover { color: var(--text); border-color: var(--text-muted); }
+
+    /* Results table */
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .results-count {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead {
+      background: var(--surface2);
+    }
+
+    th {
+      padding: 10px 16px;
+      text-align: left;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 12px 16px;
+      font-size: 0.875rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    tbody tr:hover { background: var(--surface2); }
+
+    .td-title {
+      font-weight: 500;
+      color: var(--text);
+      max-width: 280px;
+    }
+
+    .td-company { color: var(--accent); font-weight: 500; }
+    .td-location { color: var(--text-muted); }
+    .td-salary { color: var(--accent2); font-size: 0.8rem; }
+
+    .source-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .source-greenhouse { background: #1a3a2e; color: #06d6a0; }
+    .source-lever { background: #1e2d3d; color: #63b3ed; }
+    .source-adzuna { background: #2d1f1f; color: #ff8c69; }
+
+    .link-btn {
+      display: inline-block;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.8rem;
+      padding: 3px 10px;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      transition: all 0.15s;
+    }
+
+    .link-btn:hover { background: var(--accent); color: #fff; }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-top: 1.25rem;
+    }
+
+    .page-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .page-btn:hover, .page-btn.current {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .page-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* Loading / Empty states */
+    .loading {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-muted);
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 0.75rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-muted);
+    }
+
+    .error-msg {
+      background: rgba(255, 107, 107, 0.1);
+      border: 1px solid rgba(255, 107, 107, 0.3);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      color: var(--danger);
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      border-top: 1px solid var(--border);
+      margin-top: 2rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">T</div>
+    TalentScope
+  </div>
+  <div class="header-meta">Real-time job market analytics</div>
+</header>
+
+<main>
+
+  <!-- Stats Cards -->
+  <section>
+    <h2>Overview</h2>
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card accent">
+        <div class="stat-label">Total Postings</div>
+        <div class="stat-value" id="stat-total">—</div>
+        <div class="stat-sub">across all sources</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Greenhouse</div>
+        <div class="stat-value" id="stat-greenhouse">—</div>
+        <div class="stat-sub">ATS postings</div>
+      </div>
+      <div class="stat-card yellow">
+        <div class="stat-label">Lever</div>
+        <div class="stat-value" id="stat-lever">—</div>
+        <div class="stat-sub">ATS postings</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-label">Adzuna</div>
+        <div class="stat-value" id="stat-adzuna">—</div>
+        <div class="stat-sub">aggregated postings</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Charts -->
+  <section>
+    <h2>Analytics</h2>
+    <div class="charts-grid">
+      <!-- Skill Demand -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Top Skills in Demand</div>
+          <div class="chart-controls btn-group">
+            <button onclick="loadSkillDemand('7d')" data-w="7d">7d</button>
+            <button onclick="loadSkillDemand('30d')" data-w="30d" class="active">30d</button>
+            <button onclick="loadSkillDemand('90d')" data-w="90d">90d</button>
+            <button onclick="loadSkillDemand('all')" data-w="all">All</button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="skillChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Salary Trends -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Salary Trends Over Time</div>
+          <div class="chart-controls">
+            <input
+              type="text"
+              id="salary-role-filter"
+              placeholder="e.g. engineer"
+              style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:6px;font-size:0.75rem;width:120px;outline:none;"
+            />
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="salaryChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Job Search -->
+  <section>
+    <h2>Job Postings</h2>
+
+    <div class="search-bar">
+      <div class="form-group">
+        <label>Search</label>
+        <input type="text" id="search-q" placeholder="Full-text search..." />
+      </div>
+      <div class="form-group">
+        <label>Skill</label>
+        <input type="text" id="search-skill" placeholder="e.g. Python" />
+      </div>
+      <div class="form-group">
+        <label>Location</label>
+        <input type="text" id="search-location" placeholder="e.g. San Francisco" />
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:flex-end;">
+        <button class="btn btn-primary" onclick="searchPostings(1)">Search</button>
+        <button class="btn btn-secondary" onclick="clearSearch()">Clear</button>
+      </div>
+    </div>
+
+    <div id="search-error" style="display:none;" class="error-msg"></div>
+
+    <div class="results-header">
+      <div class="results-count" id="results-count">Loading...</div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Company</th>
+            <th>Location</th>
+            <th>Salary</th>
+            <th>Source</th>
+            <th>Posted</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody">
+          <tr>
+            <td colspan="7">
+              <div class="loading">
+                <div class="loading-spinner"></div>
+                <div>Loading postings...</div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="pagination" id="pagination"></div>
+  </section>
+
+</main>
+
+<footer>
+  TalentScope — Powered by Greenhouse, Lever &amp; Adzuna APIs &bull; Built with FastAPI + Chart.js
+</footer>
+
+<script>
+  const API = '';  // same origin
+  let skillChart = null;
+  let salaryChart = null;
+  let currentPage = 1;
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+
+  function fmt(n) {
+    if (n == null) return '—';
+    if (n >= 1000) return '$' + (n / 1000).toFixed(0) + 'k';
+    return '$' + n;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+  }
+
+  async function apiFetch(path) {
+    const r = await fetch(API + path);
+    if (!r.ok) throw new Error(`API ${r.status}: ${r.statusText}`);
+    return r.json();
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+
+  async function loadStats() {
+    try {
+      const data = await apiFetch('/postings/stats');
+      document.getElementById('stat-total').textContent = (data.total_postings || 0).toLocaleString();
+      document.getElementById('stat-greenhouse').textContent = ((data.by_source || {}).greenhouse || 0).toLocaleString();
+      document.getElementById('stat-lever').textContent = ((data.by_source || {}).lever || 0).toLocaleString();
+      document.getElementById('stat-adzuna').textContent = ((data.by_source || {}).adzuna || 0).toLocaleString();
+    } catch (e) {
+      document.getElementById('stat-total').textContent = '—';
+    }
+  }
+
+  // ── Skill Demand Chart ─────────────────────────────────────────────────────
+
+  const CATEGORY_COLORS = {
+    language: '#6c63ff',
+    frontend: '#f7931e',
+    backend: '#00d4aa',
+    database: '#ffd166',
+    cloud: '#63b3ed',
+    infra: '#fc8181',
+    data: '#68d391',
+    ml: '#e879f9',
+    practice: '#a0aec0',
+    security: '#ff6b6b',
+    default: '#718096',
+  };
+
+  async function loadSkillDemand(window = '30d') {
+    // Update active button
+    document.querySelectorAll('[data-w]').forEach(b => b.classList.remove('active'));
+    document.querySelector(`[data-w="${window}"]`)?.classList.add('active');
+
+    try {
+      const data = await apiFetch(`/analytics/skill-demand?window=${window}&limit=20`);
+      const skills = data.skills || [];
+
+      const labels = skills.map(s => s.name);
+      const counts = skills.map(s => s.count);
+      const colors = skills.map(s => CATEGORY_COLORS[s.category] || CATEGORY_COLORS.default);
+
+      const ctx = document.getElementById('skillChart').getContext('2d');
+      if (skillChart) skillChart.destroy();
+
+      skillChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Job Postings',
+            data: counts,
+            backgroundColor: colors.map(c => c + 'bb'),
+            borderColor: colors,
+            borderWidth: 1,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => ` ${ctx.raw} postings`,
+                title: ctx => ctx[0].label,
+              },
+              backgroundColor: '#1a1d2e',
+              titleColor: '#e2e8f0',
+              bodyColor: '#8892a4',
+              borderColor: '#2e3250',
+              borderWidth: 1,
+            },
+          },
+          scales: {
+            x: {
+              grid: { color: '#2e3250' },
+              ticks: { color: '#8892a4', font: { size: 11 } },
+            },
+            y: {
+              grid: { display: false },
+              ticks: { color: '#e2e8f0', font: { size: 11 } },
+            },
+          },
+        },
+      });
+    } catch (e) {
+      const ctx = document.getElementById('skillChart').getContext('2d');
+      ctx.font = '14px sans-serif';
+      ctx.fillStyle = '#8892a4';
+      ctx.textAlign = 'center';
+      ctx.fillText('No data available — ingest some jobs first', ctx.canvas.width / 2, 140);
+    }
+  }
+
+  // ── Salary Trends Chart ───────────────────────────────────────────────────
+
+  async function loadSalaryTrends() {
+    const role = document.getElementById('salary-role-filter').value;
+    try {
+      const data = await apiFetch(`/analytics/salary-trends?role=${encodeURIComponent(role)}`);
+      const trends = data.trends || [];
+
+      const labels = trends.map(t => {
+        if (!t.month) return '';
+        const d = new Date(t.month);
+        return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      });
+
+      const minData = trends.map(t => t.avg_salary_min);
+      const maxData = trends.map(t => t.avg_salary_max);
+
+      const ctx = document.getElementById('salaryChart').getContext('2d');
+      if (salaryChart) salaryChart.destroy();
+
+      salaryChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Avg Min Salary',
+              data: minData,
+              borderColor: '#6c63ff',
+              backgroundColor: 'rgba(108,99,255,0.08)',
+              fill: true,
+              tension: 0.4,
+              pointRadius: 4,
+              pointBackgroundColor: '#6c63ff',
+            },
+            {
+              label: 'Avg Max Salary',
+              data: maxData,
+              borderColor: '#00d4aa',
+              backgroundColor: 'rgba(0,212,170,0.08)',
+              fill: true,
+              tension: 0.4,
+              pointRadius: 4,
+              pointBackgroundColor: '#00d4aa',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: '#8892a4', font: { size: 11 }, boxWidth: 12 },
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => ` ${fmt(ctx.raw)}`,
+              },
+              backgroundColor: '#1a1d2e',
+              titleColor: '#e2e8f0',
+              bodyColor: '#8892a4',
+              borderColor: '#2e3250',
+              borderWidth: 1,
+            },
+          },
+          scales: {
+            x: {
+              grid: { color: '#2e3250' },
+              ticks: { color: '#8892a4', font: { size: 11 } },
+            },
+            y: {
+              grid: { color: '#2e3250' },
+              ticks: {
+                color: '#8892a4',
+                font: { size: 11 },
+                callback: v => fmt(v),
+              },
+            },
+          },
+        },
+      });
+
+      if (trends.length === 0) {
+        const ctx2 = document.getElementById('salaryChart').getContext('2d');
+        if (salaryChart) salaryChart.destroy();
+        ctx2.font = '14px sans-serif';
+        ctx2.fillStyle = '#8892a4';
+        ctx2.textAlign = 'center';
+        ctx2.fillText('No salary data available yet', ctx2.canvas.width / 2, 140);
+      }
+    } catch (e) {
+      console.error('Salary trends error:', e);
+    }
+  }
+
+  // ── Job Search ─────────────────────────────────────────────────────────────
+
+  async function searchPostings(page = 1) {
+    currentPage = page;
+    const q = document.getElementById('search-q').value;
+    const skill = document.getElementById('search-skill').value;
+    const location = document.getElementById('search-location').value;
+
+    const params = new URLSearchParams({
+      page,
+      page_size: 15,
+      ...(q && { q }),
+      ...(skill && { skill }),
+      ...(location && { location }),
+    });
+
+    document.getElementById('results-tbody').innerHTML = `
+      <tr><td colspan="7">
+        <div class="loading">
+          <div class="loading-spinner"></div>
+          <div>Searching...</div>
+        </div>
+      </td></tr>
+    `;
+    document.getElementById('results-count').textContent = 'Loading...';
+    document.getElementById('search-error').style.display = 'none';
+    document.getElementById('pagination').innerHTML = '';
+
+    try {
+      const data = await apiFetch(`/postings/?${params}`);
+      renderResults(data);
+    } catch (e) {
+      document.getElementById('search-error').textContent = `Error: ${e.message}. Is the API running?`;
+      document.getElementById('search-error').style.display = 'block';
+      document.getElementById('results-count').textContent = '0 results';
+      document.getElementById('results-tbody').innerHTML = `
+        <tr><td colspan="7"><div class="empty-state">Could not connect to API.</div></td></tr>
+      `;
+    }
+  }
+
+  function renderResults(data) {
+    const { total = 0, results = [], page = 1, pages = 0 } = data;
+
+    document.getElementById('results-count').textContent =
+      `${total.toLocaleString()} posting${total !== 1 ? 's' : ''} found`;
+
+    if (results.length === 0) {
+      document.getElementById('results-tbody').innerHTML = `
+        <tr><td colspan="7"><div class="empty-state">No postings found. Try adjusting your filters.</div></td></tr>
+      `;
+      return;
+    }
+
+    document.getElementById('results-tbody').innerHTML = results.map(p => `
+      <tr>
+        <td class="td-title">${escHtml(p.title)}</td>
+        <td class="td-company">${escHtml(p.company_name || '—')}</td>
+        <td class="td-location">${escHtml(p.location || '—')}</td>
+        <td class="td-salary">${p.salary_min ? fmt(p.salary_min) + ' – ' + fmt(p.salary_max) : '—'}</td>
+        <td>
+          <span class="source-badge source-${p.source}">${p.source}</span>
+        </td>
+        <td style="color:var(--text-muted);font-size:0.8rem;">${fmtDate(p.posted_at)}</td>
+        <td>
+          ${p.url ? `<a href="${escHtml(p.url)}" target="_blank" class="link-btn">View</a>` : ''}
+        </td>
+      </tr>
+    `).join('');
+
+    renderPagination(page, pages);
+  }
+
+  function renderPagination(current, total) {
+    const container = document.getElementById('pagination');
+    if (total <= 1) { container.innerHTML = ''; return; }
+
+    let html = '';
+
+    html += `<button class="page-btn" onclick="searchPostings(${current - 1})"
+      ${current <= 1 ? 'disabled' : ''}>&laquo;</button>`;
+
+    const start = Math.max(1, current - 2);
+    const end = Math.min(total, start + 4);
+    for (let i = start; i <= end; i++) {
+      html += `<button class="page-btn ${i === current ? 'current' : ''}"
+        onclick="searchPostings(${i})">${i}</button>`;
+    }
+
+    html += `<button class="page-btn" onclick="searchPostings(${current + 1})"
+      ${current >= total ? 'disabled' : ''}>&raquo;</button>`;
+
+    container.innerHTML = html;
+  }
+
+  function clearSearch() {
+    document.getElementById('search-q').value = '';
+    document.getElementById('search-skill').value = '';
+    document.getElementById('search-location').value = '';
+    searchPostings(1);
+  }
+
+  function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ── Enter key support ──────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    ['search-q', 'search-skill', 'search-location'].forEach(id => {
+      document.getElementById(id).addEventListener('keydown', e => {
+        if (e.key === 'Enter') searchPostings(1);
+      });
+    });
+
+    document.getElementById('salary-role-filter').addEventListener('keydown', e => {
+      if (e.key === 'Enter') loadSalaryTrends();
+    });
+
+    // Initial loads
+    loadStats();
+    loadSkillDemand('30d');
+    loadSalaryTrends();
+    searchPostings(1);
+  });
+</script>
+
+</body>
+</html>
