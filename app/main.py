@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import postings, analytics
+from app.api import postings, analytics, qa
 import os
 
 app = FastAPI(title="TalentScope", version="1.0.0")
@@ -15,6 +15,7 @@ app.add_middleware(
 
 app.include_router(postings.router, prefix="/postings", tags=["postings"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+app.include_router(qa.router, prefix="/qa", tags=["qa"])
 
 
 @app.get("/health")

@@ -8,7 +8,7 @@ Design notes
   candidates that would survive the WHERE clauses anyway.
 * RRF k=60 is the standard constant from Cormack et al. (2009); it smooths out
   position-1 dominance without requiring per-query tuning.
-* Candidates per source (TOP_K=100) is intentionally larger than any single page
+* Candidates per source (TOP_K=200) is intentionally larger than any single page
   so the fused ranking has enough material to paginate.  For a growing corpus,
   bump this rather than retuning k.
 """

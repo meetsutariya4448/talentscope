@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
+    groq_api_key: str = ""
 
     class Config:
         env_file = ".env"
