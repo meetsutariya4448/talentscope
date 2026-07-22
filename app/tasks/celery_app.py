@@ -11,6 +11,7 @@ app = Celery(
         "app.tasks.lever",
         "app.tasks.adzuna",
         "app.tasks.scheduler",
+        "app.tasks.embedding",
     ],
 )
 
@@ -37,5 +38,9 @@ app.conf.beat_schedule = {
     "ingest-adzuna-batch": {
         "task": "app.tasks.scheduler.dispatch_adzuna_batch",
         "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
+    },
+    "embed-missing-postings": {
+        "task": "app.tasks.embedding.embed_missing_postings",
+        "schedule": crontab(minute=15, hour="*"),  # hourly, offset to avoid congestion
     },
 }

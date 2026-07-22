@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     environment:
       POSTGRES_USER: talentscope
       POSTGRES_PASSWORD: talentscope
@@ -51,6 +51,7 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
+      - hf_cache:/root/.cache/huggingface
 
   beat:
     build: .
@@ -66,3 +67,4 @@ services:
 
 volumes:
   postgres_data:
+  hf_cache:

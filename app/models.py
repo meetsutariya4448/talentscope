@@ -5,6 +5,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 from app.database import Base
 
 
@@ -39,6 +40,7 @@ class Posting(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     search_vector = Column(TSVECTOR)
+    embedding = Column(Vector(384))
 
     company = relationship("Company", back_populates="postings")
     posting_skills = relationship("PostingSkill", back_populates="posting")

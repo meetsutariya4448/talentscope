@@ -84,7 +84,7 @@ def fetch_adzuna(self, query: str, page: int = 1):
         raise
 
     db: Session = SessionLocal()
-    inserted = 0
+    inserted_ids: list[int] = []
     try:
         skill_map = _ensure_skills(db)
         for job in results:
@@ -112,13 +112,17 @@ def fetch_adzuna(self, query: str, page: int = 1):
                 ),
                 {"id": posting.id},
             )
-            inserted += 1
+            inserted_ids.append(posting.id)
         db.commit()
-        logger.info(f"Adzuna '{query}' p{page}: {inserted}/{len(results)} new postings")
+        logger.info(f"Adzuna '{query}' p{page}: {len(inserted_ids)}/{len(results)} new postings")
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
 
-    return {"query": query, "page": page, "fetched": len(results), "inserted": inserted}
+    from app.tasks.embedding import embed_posting
+    for pid in inserted_ids:
+        embed_posting.delay(pid)
+
+    return {"query": query, "page": page, "fetched": len(results), "inserted": len(inserted_ids)}

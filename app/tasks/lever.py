@@ -48,7 +48,7 @@ def fetch_lever(self, company_slug: str, company_id: int):
         raise
 
     db: Session = SessionLocal()
-    inserted = 0
+    inserted_ids: list[int] = []
     try:
         skill_map = _ensure_skills(db)
         for job in jobs:
@@ -75,13 +75,17 @@ def fetch_lever(self, company_slug: str, company_id: int):
                 ),
                 {"id": posting.id},
             )
-            inserted += 1
+            inserted_ids.append(posting.id)
         db.commit()
-        logger.info(f"Lever {company_slug}: {inserted}/{len(jobs)} new postings")
+        logger.info(f"Lever {company_slug}: {len(inserted_ids)}/{len(jobs)} new postings")
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
 
-    return {"company_slug": company_slug, "fetched": len(jobs), "inserted": inserted}
+    from app.tasks.embedding import embed_posting
+    for pid in inserted_ids:
+        embed_posting.delay(pid)
+
+    return {"company_slug": company_slug, "fetched": len(jobs), "inserted": len(inserted_ids)}

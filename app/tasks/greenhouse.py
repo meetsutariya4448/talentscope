@@ -26,14 +26,14 @@ def _ensure_skills(db: Session) -> dict[str, int]:
     return skill_map
 
 
-def _upsert_posting(db: Session, data: dict, skill_map: dict[str, int]) -> bool:
-    """Insert posting if not duplicate. Returns True if inserted."""
+def _upsert_posting(db: Session, data: dict, skill_map: dict[str, int]) -> int | None:
+    """Insert posting if not duplicate. Returns posting_id if inserted, None otherwise."""
     if is_exact_duplicate(db, data["source"], data["source_id"]):
-        return False
+        return None
 
     fuzzy_id = find_fuzzy_duplicate(db, data.get("company_id"), data["title"], data.get("location", ""))
     if fuzzy_id:
-        return False
+        return None
 
     posting = Posting(
         company_id=data["company_id"],
@@ -68,7 +68,7 @@ def _upsert_posting(db: Session, data: dict, skill_map: dict[str, int]) -> bool:
         ),
         {"id": posting.id},
     )
-    return True
+    return posting.id
 
 
 @celery_app.task(
@@ -92,19 +92,25 @@ def fetch_greenhouse(self, board_token: str, company_id: int):
         raise
 
     db: Session = SessionLocal()
-    inserted = 0
+    inserted_ids: list[int] = []
     try:
         skill_map = _ensure_skills(db)
         for job in jobs:
             data = normalize_greenhouse(job, company_id)
-            if _upsert_posting(db, data, skill_map):
-                inserted += 1
+            pid = _upsert_posting(db, data, skill_map)
+            if pid is not None:
+                inserted_ids.append(pid)
         db.commit()
-        logger.info(f"Greenhouse {board_token}: {inserted}/{len(jobs)} new postings")
+        logger.info(f"Greenhouse {board_token}: {len(inserted_ids)}/{len(jobs)} new postings")
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
 
-    return {"board_token": board_token, "fetched": len(jobs), "inserted": inserted}
+    # Dispatch embedding tasks after commit so postings are guaranteed visible
+    from app.tasks.embedding import embed_posting
+    for pid in inserted_ids:
+        embed_posting.delay(pid)
+
+    return {"board_token": board_token, "fetched": len(jobs), "inserted": len(inserted_ids)}
