@@ -89,7 +89,8 @@ def test_fetch_greenhouse_task_eager(db):
     company_id = company.id
 
     with patch("app.tasks.greenhouse.httpx.Client") as mock_client_cls, \
-         patch("app.tasks.greenhouse.SessionLocal", return_value=db):
+         patch("app.tasks.greenhouse.SessionLocal", return_value=db), \
+         patch("app.tasks.embedding.embed_posting") as mock_embed:
         mock_client = MagicMock()
         mock_client_cls.return_value.__enter__.return_value = mock_client
         mock_response = MagicMock()
@@ -110,3 +111,5 @@ def test_fetch_greenhouse_task_eager(db):
         result = fetch_greenhouse("test-token", company_id)
         assert result["fetched"] == 1
         assert result["inserted"] >= 0
+        # embed_posting.delay must have been called for each inserted posting
+        assert mock_embed.delay.called

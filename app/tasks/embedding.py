@@ -3,21 +3,12 @@ from sqlalchemy import select
 from app.tasks.celery_app import app as celery_app
 from app.database import SessionLocal
 from app.models import Posting
+from app.search.encoder import get_model
 
 logger = logging.getLogger(__name__)
 
-# Lazy singleton — model is ~80 MB and takes ~3 s to load; load once per worker process.
-_model = None
-
-
-def _get_model():
-    global _model
-    if _model is None:
-        from sentence_transformers import SentenceTransformer
-        logger.info("Loading sentence-transformer model (all-MiniLM-L6-v2)…")
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-        logger.info("Model loaded.")
-    return _model
+# Re-export for callers that import _get_model directly (e.g. tests)
+_get_model = get_model
 
 
 def _build_text(posting: Posting) -> str:
@@ -45,7 +36,7 @@ def embed_posting(self, posting_id: int):
         # normalize_embeddings=True matches the model's training convention (MNR loss on unit sphere)
         # and keeps inner-product search viable as a future optimisation (dot product == cosine on unit vectors).
         # Cosine similarity is scale-invariant, so vector_cosine_ops ranks identically either way.
-        vec = _get_model().encode(content, normalize_embeddings=True).tolist()
+        vec = get_model().encode(content, normalize_embeddings=True).tolist()
 
         # Assign via ORM so pgvector.sqlalchemy.Vector handles type serialization
         posting.embedding = vec
