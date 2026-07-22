@@ -9,6 +9,7 @@ from app.search.hybrid import (
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, Literal
+from sqlalchemy import String
 import math
 
 router = APIRouter()
@@ -86,9 +87,12 @@ def _fts_results(
         Company, Posting.company_id == Company.id, isouter=True
     )
     if q:
-        query = query.where(
-            Posting.search_vector.op("@@")(func.plainto_tsquery("english", q))
+        # OR semantics: plainto_tsquery stems + stop-words, then flip AND → OR
+        or_tsquery = func.to_tsquery(
+            "english",
+            func.replace(func.plainto_tsquery("english", q).cast(String), " & ", " | "),
         )
+        query = query.where(Posting.search_vector.op("@@")(or_tsquery))
     if skill:
         skill_subq = (
             select(PostingSkill.posting_id)

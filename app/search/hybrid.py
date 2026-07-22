@@ -19,7 +19,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-TOP_K = 100   # candidates fetched from each source before fusion
+TOP_K = 200   # candidates fetched from each source before fusion.
+              # Empirically: at k=100 on a 1.5 k-post corpus, 4/5 test queries produced
+              # different top-20 sets vs k=300 (2–3 entries changed). k=200 is the conservative
+              # midpoint — revisit upward if corpus grows past ~20k postings.
 RRF_K = 60    # smoothing constant — do not tune per-query
 
 
@@ -62,13 +65,20 @@ def fts_search(
     if not q:
         return []
 
+    # Convert plainto_tsquery's AND semantics to OR so conversational queries
+    # ("senior backend engineer with Kubernetes") don't require every term to appear.
+    # plainto_tsquery handles stemming and stop-words; we just flip ' & ' → ' | '.
+    # ts_rank still rewards more-term matches, so precision-oriented results rank higher.
     sql = """
         SELECT p.id
         FROM postings p
-        WHERE p.search_vector @@ plainto_tsquery('english', :q)
+        WHERE p.search_vector @@ to_tsquery('english',
+              replace(plainto_tsquery('english', :q)::text, ' & ', ' | '))
         {skill_join}
         {location_clause}
-        ORDER BY ts_rank(p.search_vector, plainto_tsquery('english', :q)) DESC
+        ORDER BY ts_rank(p.search_vector,
+                 to_tsquery('english',
+                 replace(plainto_tsquery('english', :q)::text, ' & ', ' | '))) DESC
         LIMIT :limit
     """
     skill_join = ""
