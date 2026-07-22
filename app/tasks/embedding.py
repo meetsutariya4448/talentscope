@@ -42,7 +42,9 @@ def embed_posting(self, posting_id: int):
             return {"posting_id": posting_id, "skipped": True}
 
         content = _build_text(posting)
-        # normalize_embeddings=True → L2-normalised, so cosine similarity == dot product
+        # normalize_embeddings=True matches the model's training convention (MNR loss on unit sphere)
+        # and keeps inner-product search viable as a future optimisation (dot product == cosine on unit vectors).
+        # Cosine similarity is scale-invariant, so vector_cosine_ops ranks identically either way.
         vec = _get_model().encode(content, normalize_embeddings=True).tolist()
 
         # Assign via ORM so pgvector.sqlalchemy.Vector handles type serialization
