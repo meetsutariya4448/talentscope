@@ -1,42 +1,61 @@
 # TalentScope
 
-A distributed job market intelligence platform that ingests, deduplicates, and analyzes 50,000+ job postings from Greenhouse, Lever, and Adzuna APIs — with a real-time analytics dashboard powered by FastAPI and Chart.js.
+A distributed job market intelligence platform that ingests, deduplicates, and analyzes 1,500+ job postings from Greenhouse, Lever, and Adzuna APIs — with semantic hybrid search, a RAG market Q&A system, automated role clustering, and a real-time analytics dashboard.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          TalentScope                                │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│   External APIs          Task Queue          Database               │
-│   ┌──────────┐           ┌────────┐         ┌───────────────────┐   │
-│   │Greenhouse│──────────▶│ Celery │────────▶│   PostgreSQL      │   │
-│   │   API    │           │ Worker │         │  ┌─────────────┐  │   │
-│   └──────────┘           └────────┘         │  │  companies  │  │   │
-│   ┌──────────┐               ▲              │  │  postings   │  │   │
-│   │  Lever   │───────────────┤              │  │  skills     │  │   │
-│   │   API    │           ┌────────┐         │  │posting_skills│ │   │
-│   └──────────┘           │ Redis  │         │  └─────────────┘  │   │
-│   ┌──────────┐           │Broker/ │         └───────────────────┘   │
-│   │  Adzuna  │           │Backend │                  │              │
-│   │   API    │           └────────┘                  │              │
-│   └──────────┘               │                       ▼              │
-│                          ┌────────┐         ┌───────────────────┐   │
-│                          │  Beat  │         │  FastAPI Server   │   │
-│                          │Scheduler         │  /postings/       │   │
-│                          └────────┘         │  /analytics/      │   │
-│                                             │  /dashboard/      │   │
-│                                             └───────────────────┘   │
-│                                                      │              │
-│                                             ┌───────────────────┐   │
-│                                             │  Chart.js Frontend│   │
-│                                             │  dashboard/index  │   │
-│                                             └───────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              TalentScope                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  External APIs         Task Queue            Database                       │
+│  ┌──────────┐          ┌──────────┐         ┌──────────────────────────┐    │
+│  │Greenhouse│─────────▶│  Celery  │────────▶│      PostgreSQL           │    │
+│  │   API    │          │  Worker  │         │  ┌────────────────────┐  │    │
+│  └──────────┘          └──────────┘         │  │ companies          │  │    │
+│  ┌──────────┐               ▲               │  │ postings           │  │    │
+│  │  Lever   │───────────────┤               │  │   └─ embedding     │  │    │
+│  │   API    │          ┌──────────┐         │  │      (vector 384)  │  │    │
+│  └──────────┘          │  Redis   │         │  │   └─ search_vector │  │    │
+│  ┌──────────┐          │  Broker/ │         │  │      (tsvector/GIN)│  │    │
+│  │  Adzuna  │          │  Backend │         │  │ skills             │  │    │
+│  │   API    │          │  RAG Cache         │  │ posting_skills     │  │    │
+│  └──────────┘          └──────────┘         │  │ skill_clusters     │  │    │
+│                             │               │  └────────────────────┘  │    │
+│                        ┌──────────┐         └──────────────────────────┘    │
+│                        │   Beat   │                      │                  │
+│                        │Scheduler │                      ▼                  │
+│                        └──────────┘          ┌──────────────────────────┐   │
+│                                              │      FastAPI Server       │   │
+│  External LLM                                │  /postings/?mode=hybrid   │   │
+│  ┌──────────┐                                │  /qa/ask  (RAG)           │   │
+│  │  Groq    │◀──────────────────────────────▶│  /analytics/clusters      │   │
+│  │  LLaMA 3 │                                │  /analytics/skill-demand  │   │
+│  └──────────┘                                └──────────────────────────┘   │
+│                                                          │                  │
+│                                              ┌──────────────────────────┐   │
+│                                              │  Chart.js Dashboard       │   │
+│                                              │  skill demand · salary    │   │
+│                                              │  trends · role clusters   │   │
+│                                              └──────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Features
+
+| Layer | What it does |
+|---|---|
+| **Ingestion** | Celery Beat tasks fetch from Greenhouse/Lever/Adzuna every 4–6 h; exact + fuzzy deduplication before upsert |
+| **Embedding** | all-MiniLM-L6-v2 (384-dim) encodes every posting; stored in pgvector column with HNSW index (m=16, ef=64) |
+| **Hybrid Search** | FTS (GIN/tsvector, OR semantics) + vector cosine fused via Reciprocal Rank Fusion (k=60); p95 ≤ 29 ms |
+| **RAG Q&A** | 8 hybrid-retrieved postings → Groq llama-3.1-8b-instant; Redis SHA-256 cache (TTL 1 h); server-side citation validation |
+| **Role Clustering** | KMeans on pgvector embeddings; k auto-selected by silhouette grid (5–15); TF-IDF cluster labels; daily Beat task |
+| **Analytics** | Skill demand, salary trends, top companies; Chart.js dashboard |
 
 ---
 
@@ -49,7 +68,7 @@ cd talentscope
 
 # 2. Copy environment file
 cp .env.example .env
-# Edit .env with your Adzuna credentials (optional)
+# Edit .env — add GROQ_API_KEY (free at console.groq.com), optionally Adzuna credentials
 
 # 3. Start all services
 docker-compose up --build
@@ -64,7 +83,7 @@ open http://localhost:8000/dashboard/
 Services:
 - API: http://localhost:8000
 - Dashboard: http://localhost:8000/dashboard/
-- API Docs: http://localhost:8000/docs
+- API Docs (Swagger): http://localhost:8000/docs
 
 ---
 
@@ -72,7 +91,7 @@ Services:
 
 ### Prerequisites
 - Python 3.11+
-- PostgreSQL 15+
+- PostgreSQL 15+ with [pgvector](https://github.com/pgvector/pgvector) extension
 - Redis 7+
 
 ### Steps
@@ -80,7 +99,7 @@ Services:
 ```bash
 # Create virtual environment
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -88,12 +107,12 @@ pip install -r requirements.txt
 # Copy and configure environment
 cp .env.example .env
 
-# Start PostgreSQL and Redis (using Docker)
+# Start PostgreSQL and Redis
 docker run -d --name ts-postgres \
   -e POSTGRES_USER=talentscope \
   -e POSTGRES_PASSWORD=talentscope \
   -e POSTGRES_DB=talentscope \
-  -p 5432:5432 postgres:15
+  -p 5432:5432 pgvector/pgvector:pg15
 
 docker run -d --name ts-redis -p 6379:6379 redis:7
 
@@ -103,10 +122,10 @@ alembic upgrade head
 # Start the API server
 uvicorn app.main:app --reload
 
-# In another terminal: start Celery worker
+# Celery worker (separate terminal)
 celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
 
-# In another terminal: start Celery Beat scheduler
+# Celery Beat scheduler (separate terminal)
 celery -A app.tasks.celery_app beat --loglevel=info
 ```
 
@@ -117,11 +136,13 @@ celery -A app.tasks.celery_app beat --loglevel=info
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `DATABASE_URL` | Yes | `postgresql://talentscope:talentscope@localhost:5432/talentscope` | PostgreSQL connection string |
-| `REDIS_URL` | Yes | `redis://localhost:6379/0` | Redis connection string (broker + backend) |
+| `REDIS_URL` | Yes | `redis://localhost:6379/0` | Redis — Celery broker/backend and RAG cache |
+| `GROQ_API_KEY` | Yes (for Q&A) | `""` | Groq API key — get free at [console.groq.com](https://console.groq.com) |
 | `ADZUNA_APP_ID` | No | `""` | Adzuna API app ID (from developer.adzuna.com) |
 | `ADZUNA_APP_KEY` | No | `""` | Adzuna API app key |
 
-Without Adzuna credentials, only Greenhouse and Lever data will be ingested.
+Without `GROQ_API_KEY`, `/qa/ask` returns HTTP 503.  
+Without Adzuna credentials, only Greenhouse and Lever data is ingested.
 
 ---
 
@@ -131,36 +152,51 @@ Without Adzuna credentials, only Greenhouse and Lever data will be ingested.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/postings/` | Search job postings with filters |
+| `GET` | `/postings/` | Search job postings (FTS, vector, or hybrid) |
 | `GET` | `/postings/stats` | Total count and breakdown by source |
 
 **Query parameters for `GET /postings/`:**
-- `q` — Full-text search query (uses PostgreSQL tsvector)
-- `skill` — Filter by skill name (e.g. `Python`, `React`)
-- `location` — Partial match on location string
-- `page` — Page number (default: 1)
-- `page_size` — Results per page (default: 20, max: 100)
 
-**Example:**
+| Param | Default | Description |
+|---|---|---|
+| `q` | `""` | Search query |
+| `mode` | `fts` | `fts` · `vector` · `hybrid` |
+| `skill` | `""` | Filter by skill name (e.g. `Python`) |
+| `location` | `""` | Partial match on location string |
+| `page` | `1` | Page number |
+| `page_size` | `20` | Results per page (max 100) |
+
 ```bash
-curl "http://localhost:8000/postings/?q=machine+learning&skill=Python&location=Remote&page=1"
+# Hybrid semantic search
+curl "http://localhost:8000/postings/?q=machine+learning+engineer&mode=hybrid"
+
+# FTS with skill filter
+curl "http://localhost:8000/postings/?q=backend&skill=Go&mode=fts"
 ```
+
+### Market Q&A (RAG)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/qa/ask` | Answer a market question using retrieved postings + LLM |
+
+```bash
+curl -X POST http://localhost:8000/qa/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What skills are most in demand for backend roles?", "mode": "hybrid"}'
+```
+
+Response includes `answer`, `sources` (posting excerpts), `cited_ids`, `cached` flag, and `latency_ms`.
 
 ### Analytics
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/analytics/skill-demand` | Top skills by posting count |
+| `GET` | `/analytics/skill-demand` | Top skills by posting count (windowed) |
 | `GET` | `/analytics/salary-trends` | Average salary by month |
 | `GET` | `/analytics/top-companies` | Companies with most postings |
-
-**Query parameters for `/analytics/skill-demand`:**
-- `window` — Time window: `7d`, `30d`, `90d`, `all` (default: `30d`)
-- `limit` — Number of skills to return (default: 20, max: 50)
-
-**Query parameters for `/analytics/salary-trends`:**
-- `role` — Keyword filter on job title
-- `location` — Location filter
+| `GET` | `/analytics/clusters` | Latest KMeans role clusters with labels |
+| `POST` | `/analytics/clusters/run` | Trigger a clustering run (optional `?k=N`) |
 
 ### Health
 
@@ -170,125 +206,208 @@ curl "http://localhost:8000/postings/?q=machine+learning&skill=Python&location=R
 
 ---
 
+## Search Modes
+
+### FTS (Full-Text Search)
+PostgreSQL `tsvector` / `ts_rank` via a GIN index.  Stop-words and stemming handled by the `english` dictionary.  OR semantics: `"senior backend engineer"` matches any posting containing any of those terms (not all three), so conversational queries don't zero out results.
+
+### Vector (Semantic)
+Query encoded with all-MiniLM-L6-v2 (384-dim, normalized).  Nearest-neighbor search over pgvector HNSW index (`<=>` cosine distance).  Finds semantically similar postings even when exact keywords don't match (e.g. `"MLOps"` ↔ `"ML infrastructure"`).
+
+### Hybrid (default for Q&A)
+Fetches 200 candidates from each source, fuses the two ranked lists with Reciprocal Rank Fusion (`score = Σ 1/(60 + rank_i)`).  Precision of FTS + recall of vector; neither source is silenced.
+
+---
+
+## RAG Market Q&A
+
+`POST /qa/ask` retrieves the 8 best postings for the question (hybrid search), injects them as context into a structured prompt, and calls Groq's `llama-3.1-8b-instant`.
+
+**Cache**: SHA-256 of `question|mode|N_SOURCES` → Redis (TTL 1 h).  Cache-hits skip the LLM call and back-fill `cited_ids` from the stored answer.
+
+**Citation validation**: The LLM is instructed to cite sources as `[1]`…`[8]`.  The server strips any citation number outside the range of retrieved postings so out-of-range hallucinated references never reach the client.
+
+**Failure modes**: Redis failure is non-fatal (degraded to no-cache).  Missing `GROQ_API_KEY` returns HTTP 503 immediately.
+
+---
+
+## Role Clustering
+
+A daily Celery Beat task (`03:00 UTC`) clusters all embedded postings by semantic similarity:
+
+1. Pull all 384-dim embeddings from pgvector, normalize to unit sphere.
+2. Run silhouette grid over k = 5…15 (subsample 500, `random_state=42`) to pick the best k.
+3. Fit KMeans (`n_init=10`, `random_state=42`).
+4. Label each cluster with its top-2 discriminating skills using a TF-IDF analog:
+   `score(skill, cluster) = (cluster_freq / cluster_size) / (corpus_freq / n_total)`
+   with a 3% / 3-posting presence floor to suppress both globally dominant terms and rare-skill noise.
+5. Persist to `skill_clusters` table; bulk-update `postings.cluster_id`.
+
+Current run (1,530 postings, k=8, silhouette=0.3646):
+
+| Cluster | Label | Size |
+|---|---|---|
+| 0 | API Design · SQL | 528 |
+| 1 | Bash · Grafana | 269 |
+| 2 | Spring · Microservices | 138 |
+| 3 | Elasticsearch · CSS | 200 |
+| 4 | PHP · Jenkins | 260 |
+| 5 | Rails · React | 77 |
+| 6 | Agile · Kubernetes | 37 |
+| 7 | Linux · Java | 21 |
+
+> **Known limitation**: cluster IDs are reassigned on every fit.  Cross-run identity is not tracked — add centroid matching (cosine + Hungarian algorithm) before building a trend endpoint.
+
+---
+
+## Benchmark
+
+Measured against 1,530 postings (all embedded); 12 queries × 5 repeats, 2 warm-up runs discarded.
+Results stored in `evals/benchmark.json`.
+
+| Mode | p50 | p95 | p99 |
+|---|---|---|---|
+| FTS | 6.7 ms | 9.0 ms | 10.1 ms |
+| Vector (HNSW) | 13.0 ms | 18.3 ms | 24.6 ms |
+| Hybrid (RRF) | 23.8 ms | 28.6 ms | 32.3 ms |
+
+Embedding throughput: **182.7 sentences/sec** (5.47 ms/sentence, all-MiniLM-L6-v2, CPU).
+
+Reproduce:
+
+```bash
+python scripts/benchmark.py
+```
+
+---
+
 ## Resume Bullet Mapping
 
-These two resume bullets map directly to the following code locations:
+### Bullet 1 — Distributed ingestion pipeline
+> "Engineered a **distributed data pipeline** using **Celery/Redis task queues** to scrape, deduplicate, and persist **1,500+ job postings** from three live APIs with **fault-tolerant retry logic** and **scheduled cron-driven ingestion**, validated by **automated GitHub Actions CI/CD** on every commit."
 
-### Bullet 1
-> "Engineered a **distributed data pipeline** using **Celery/Redis task queues** to **scrape, deduplicate, and persist 50,000+ job postings** with **fault-tolerant retry logic**, **scheduled cron-driven ingestion**, and **automated GitHub Actions CI/CD** on each commit."
-
-| Phrase | Code Location |
+| Phrase | Code location |
 |---|---|
-| "distributed data pipeline" | `app/tasks/` — Celery tasks distributed across workers |
-| "Celery/Redis task queues" | `app/tasks/celery_app.py` — Celery app with Redis as broker/backend |
-| "scrape" | `app/tasks/greenhouse.py:fetch_greenhouse()`, `app/tasks/lever.py:fetch_lever()`, `app/tasks/adzuna.py:fetch_adzuna()` |
-| "deduplicate" | `app/ingestion/deduplicator.py` — `is_exact_duplicate()` and `find_fuzzy_duplicate()` |
-| "persist 50,000+ job postings" | `app/tasks/greenhouse.py:_upsert_posting()` — inserts into PostgreSQL via SQLAlchemy |
-| "fault-tolerant retry logic" | `app/tasks/greenhouse.py` L62-66 — `autoretry_for`, `retry_backoff`, `retry_backoff_max`, `max_retries=3` |
-| "scheduled cron-driven ingestion" | `app/tasks/celery_app.py:beat_schedule` — crontab schedules every 4-6 hours |
-| "automated GitHub Actions CI/CD" | `.github/workflows/ci.yml` — runs on every push to main |
+| distributed data pipeline | `app/tasks/` — Celery tasks distributed across workers |
+| Celery/Redis task queues | `app/tasks/celery_app.py` — Redis as broker + backend |
+| scrape | `app/tasks/greenhouse.py`, `lever.py`, `adzuna.py` |
+| deduplicate | `app/ingestion/deduplicator.py` — exact + fuzzy dedup |
+| fault-tolerant retry logic | `autoretry_for`, `retry_backoff`, `max_retries=3` in each task |
+| scheduled cron-driven ingestion | `app/tasks/celery_app.py:beat_schedule` — crontab every 4–6 h |
+| automated GitHub Actions CI/CD | `.github/workflows/ci.yml` |
 
-### Bullet 2
-> "Designed a **PostgreSQL schema** with **normalized relational tables**, **indexed full-text search columns**, and **optimized aggregation queries** powering an **interactive Chart.js analytics dashboard** for real-time **skill demand** and **salary trend visualization**."
+### Bullet 2 — Analytics dashboard
+> "Designed a **PostgreSQL schema** with **normalized relational tables**, **GIN-indexed full-text search**, and **aggregation queries** powering an **interactive Chart.js dashboard** for real-time **skill demand** and **salary trend** visualization."
 
-| Phrase | Code Location |
+| Phrase | Code location |
 |---|---|
-| "PostgreSQL schema" | `app/models.py` — SQLAlchemy models; `alembic/versions/0001_initial_schema.py` — migration |
-| "normalized relational tables" | `app/models.py` — `Company`, `Posting`, `Skill`, `PostingSkill` with FK relationships |
-| "indexed full-text search columns" | `app/models.py:Posting.search_vector` (TSVECTOR) + `ix_postings_search_vector` GIN index; also `ix_postings_company_title_location`, `ix_postings_posted_at`, `ix_postings_source` |
-| "optimized aggregation queries" | `app/api/analytics.py:skill_demand()`, `salary_trends()`, `top_companies()` — GROUP BY + COUNT/AVG |
-| "interactive Chart.js analytics dashboard" | `dashboard/index.html` — Chart.js 4.x bar + line charts |
-| "skill demand" | `app/api/analytics.py:skill_demand()` + `dashboard/index.html:loadSkillDemand()` |
-| "salary trend visualization" | `app/api/analytics.py:salary_trends()` + `dashboard/index.html:loadSalaryTrends()` |
+| PostgreSQL schema | `app/models.py`; `alembic/versions/0001_initial_schema.py` |
+| normalized relational tables | `Company`, `Posting`, `Skill`, `PostingSkill` with FK relationships |
+| GIN-indexed full-text search | `ix_postings_search_vector` GIN index on `search_vector` tsvector column |
+| aggregation queries | `app/api/analytics.py` — `GROUP BY` + `COUNT`/`AVG` |
+| interactive Chart.js dashboard | `dashboard/index.html` — Chart.js 4.x bar + line + horizontal bar charts |
+
+### Bullet 3 — Semantic hybrid search
+> "Implemented **semantic hybrid search** combining a **pgvector HNSW index** (all-MiniLM-L6-v2, 384-dim, cosine) with PostgreSQL **GIN full-text search**, fused via **Reciprocal Rank Fusion** — achieving **p95 ≤ 29 ms** for hybrid and **p95 ≤ 19 ms** for vector-only across 1,530 embedded postings."
+
+| Phrase | Code location |
+|---|---|
+| pgvector HNSW index | `alembic/versions/0002_add_embeddings.py` — `CREATE INDEX … USING hnsw` |
+| all-MiniLM-L6-v2 | `app/search/encoder.py:get_model()` — lazy singleton |
+| cosine distance | `app/search/hybrid.py:vector_search()` — `p.embedding <=> CAST(:vec AS vector)` |
+| GIN full-text search | `app/search/hybrid.py:fts_search()` — OR-tsquery over `search_vector` |
+| Reciprocal Rank Fusion | `app/search/hybrid.py:reciprocal_rank_fusion()` — `Σ 1/(60 + rank_i)` |
+| p95 latency numbers | `evals/benchmark.json` — 12 queries × 5 repeats, warm-up discarded |
+
+### Bullet 4 — RAG Q&A and role clustering
+> "Built a **RAG market Q&A system** (Groq llama-3.1-8b-instant, **Redis cache** with SHA-256 key + 1 h TTL, server-side citation validation) and automated **KMeans role clustering** (k auto-selected by silhouette grid over 5–15, **TF-IDF cluster labels** with 3% floor) as a scheduled **Celery Beat** task — confirmed via end-to-end Beat smoke test."
+
+| Phrase | Code location |
+|---|---|
+| RAG market Q&A | `app/search/rag.py:answer_question()` |
+| Groq llama-3.1-8b-instant | `app/search/rag.py:GROQ_MODEL` |
+| Redis cache with SHA-256 key | `app/search/rag.py:_cache_key()` — `sha256(question|mode|N_SOURCES)` |
+| server-side citation validation | `app/search/rag.py:_parse_cited_ids()` — strips `[N]` where N > len(sources) |
+| KMeans role clustering | `app/ml/clustering.py:run_clustering()` |
+| silhouette grid | `app/ml/clustering.py:_best_k()` — grid over k=5..15, sample_size=500 |
+| TF-IDF cluster labels with 3% floor | `app/ml/clustering.py:_cluster_top_skills()` |
+| Celery Beat task | `app/tasks/clustering.py` — `run_clustering_task`, daily at 03:00 UTC |
 
 ---
 
 ## Data Sources
 
 ### Greenhouse
-Greenhouse is an Applicant Tracking System (ATS) used by hundreds of tech companies. Their public jobs API (`boards-api.greenhouse.io`) exposes job listings for any company with a public board.
+Applicant Tracking System used by hundreds of tech companies.  Public jobs API at `boards-api.greenhouse.io`.
 
-- **Endpoint**: `https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true`
-- **Coverage**: 47 companies including Stripe, Notion, Figma, Datadog, Coinbase, and more
-- **Rate limit**: None for public endpoints
+- **Coverage**: 47 companies (Stripe, Notion, Figma, Datadog, Coinbase, and more)
+- **Rate limit**: none for public endpoints
 
 ### Lever
-Lever is another popular ATS with a public postings API.
+Another popular ATS with a public postings API.
 
-- **Endpoint**: `https://api.lever.co/v0/postings/{slug}?mode=json`
-- **Coverage**: 12 companies including Netflix, Airbnb, Spotify, Shopify
-- **Rate limit**: None for public endpoints
+- **Coverage**: 12 companies (Netflix, Airbnb, Spotify, Shopify)
+- **Rate limit**: none for public endpoints
 
 ### Adzuna
-Adzuna is a job aggregator covering millions of postings across multiple job boards.
+Job aggregator.  Register at [developer.adzuna.com](https://developer.adzuna.com) for a free API key.
 
-- **Endpoint**: `https://api.adzuna.com/v1/api/jobs/us/search/{page}`
-- **Registration**: Free API key at [developer.adzuna.com](https://developer.adzuna.com)
-- **Coverage**: Broad US market across 10 role categories
-- **Ingestion**: 3 pages × 50 results × 10 queries = up to 1,500 postings per run
+- **Coverage**: broad US market; 3 pages × 50 results × 10 queries = up to 1,500 postings per run
+- **Rate limit**: 250 requests/day on free tier
 
 ---
 
 ## Running Tests
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
 
-# Ensure test database exists
-createdb talentscope_test  # or use Docker
+# Ensure test DB exists with pgvector
+createdb talentscope_test
+psql talentscope_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# Set test database URL
 export TEST_DATABASE_URL=postgresql://talentscope:talentscope@localhost:5432/talentscope_test
 export DATABASE_URL=$TEST_DATABASE_URL
 
-# Run migrations against test DB
 alembic upgrade head
 
-# Run all tests
 pytest tests/ -v
-
-# Run specific test files
-pytest tests/test_dedup.py -v
-pytest tests/test_api.py -v
-pytest tests/test_tasks.py -v
 ```
 
-Test coverage:
-- `tests/test_dedup.py` — Exact and fuzzy deduplication logic
-- `tests/test_api.py` — All FastAPI endpoints (health, search, analytics)
-- `tests/test_tasks.py` — Normalizers, skill extraction, task smoke test
+Test files:
+
+| File | Coverage |
+|---|---|
+| `tests/test_dedup.py` | Exact and fuzzy deduplication |
+| `tests/test_api.py` | All FastAPI endpoints |
+| `tests/test_tasks.py` | Normalizers, skill extraction, task smoke |
+| `tests/test_search.py` | FTS, vector, hybrid search; RRF unit tests |
+| `tests/test_qa.py` | RAG pipeline, Redis cache, citation validation |
+| `tests/test_clustering.py` | KMeans pipeline, TF-IDF labels, API endpoints |
 
 ---
 
 ## Deployment (Railway)
 
 ```bash
-# Install Railway CLI
 npm install -g @railway/cli
+railway login && railway init
 
-# Login and initialize
-railway login
-railway init
+# Add PostgreSQL (with pgvector plugin) and Redis via Railway dashboard
 
-# Add PostgreSQL and Redis plugins via Railway dashboard
-
-# Set environment variables
 railway variables set DATABASE_URL=<from-railway-postgres>
 railway variables set REDIS_URL=<from-railway-redis>
+railway variables set GROQ_API_KEY=<your-groq-key>
 railway variables set ADZUNA_APP_ID=<your-key>
 railway variables set ADZUNA_APP_KEY=<your-key>
 
-# Deploy
 railway up
-
-# Run migrations
 railway run alembic upgrade head
 ```
 
-For the Celery worker and beat services, create additional Railway services pointing to the same repo with the commands:
-- Worker: `celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4`
-- Beat: `celery -A app.tasks.celery_app beat --loglevel=info`
+For the worker and beat services, create additional Railway services with:
+- **Worker**: `celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4`
+- **Beat**: `celery -A app.tasks.celery_app beat --loglevel=info`
 
 ---
 
@@ -296,39 +415,55 @@ For the Celery worker and beat services, create additional Railway services poin
 
 ```
 talentscope/
-├── .github/workflows/ci.yml       # GitHub Actions CI pipeline
+├── .github/workflows/ci.yml           # GitHub Actions CI
 ├── alembic/
-│   ├── versions/
-│   │   └── 0001_initial_schema.py # Initial DB migration
-│   ├── env.py                     # Alembic env config
-│   └── script.py.mako             # Migration template
+│   └── versions/
+│       ├── 0001_initial_schema.py     # companies, postings, skills
+│       ├── 0002_add_embeddings.py     # vector(384) column + HNSW index
+│       └── 0003_add_clustering.py     # skill_clusters table, postings.cluster_id
 ├── app/
-│   ├── main.py                    # FastAPI app entrypoint
-│   ├── config.py                  # Pydantic settings
-│   ├── database.py                # SQLAlchemy engine + session
-│   ├── models.py                  # ORM models (Company, Posting, Skill)
+│   ├── main.py                        # FastAPI app entrypoint
+│   ├── config.py                      # Pydantic settings (DATABASE_URL, GROQ_API_KEY …)
+│   ├── database.py                    # SQLAlchemy engine + session
+│   ├── models.py                      # ORM: Company, Posting, Skill, PostingSkill, SkillCluster
 │   ├── api/
-│   │   ├── postings.py            # /postings/ endpoints
-│   │   └── analytics.py          # /analytics/ endpoints
+│   │   ├── postings.py                # /postings/ — search with mode=fts|vector|hybrid
+│   │   ├── analytics.py               # /analytics/ — skill demand, salary, clusters
+│   │   └── qa.py                      # /qa/ask — RAG market Q&A
+│   ├── search/
+│   │   ├── encoder.py                 # all-MiniLM-L6-v2 lazy singleton
+│   │   ├── hybrid.py                  # fts_search, vector_search, reciprocal_rank_fusion
+│   │   └── rag.py                     # answer_question — retrieval → Groq → Redis
+│   ├── ml/
+│   │   └── clustering.py              # run_clustering — KMeans + TF-IDF labels
 │   ├── tasks/
-│   │   ├── celery_app.py          # Celery app + beat schedule
-│   │   ├── greenhouse.py          # Greenhouse ingestion task
-│   │   ├── lever.py               # Lever ingestion task
-│   │   ├── adzuna.py              # Adzuna ingestion task
-│   │   └── scheduler.py           # Batch dispatch tasks
+│   │   ├── celery_app.py              # Celery app + Beat schedule
+│   │   ├── greenhouse.py              # Greenhouse ingestion task
+│   │   ├── lever.py                   # Lever ingestion task
+│   │   ├── adzuna.py                  # Adzuna ingestion task
+│   │   ├── scheduler.py               # Batch dispatch tasks
+│   │   ├── embedding.py               # embed_missing_postings Beat task
+│   │   └── clustering.py              # run_clustering_task Beat task
 │   └── ingestion/
-│       ├── normalizer.py          # API response normalizers
-│       ├── deduplicator.py        # Exact + fuzzy dedup
-│       └── skills.py              # Skill extraction (180+ skills)
-├── dashboard/index.html            # Chart.js analytics frontend
+│       ├── normalizer.py              # API response normalizers
+│       ├── deduplicator.py            # Exact + fuzzy dedup
+│       └── skills.py                  # Skill extraction (180+ skills)
+├── dashboard/index.html               # Chart.js frontend (skill demand, salary, clusters)
+├── evals/
+│   └── benchmark.json                 # Latency benchmark results (traceable)
+├── scripts/
+│   └── benchmark.py                   # Search latency benchmark runner
 ├── tests/
-│   ├── conftest.py                # pytest fixtures
-│   ├── test_dedup.py              # Deduplication tests
-│   ├── test_api.py                # API endpoint tests
-│   └── test_tasks.py              # Normalizer + task tests
-├── .env.example                   # Environment variable template
-├── alembic.ini                    # Alembic configuration
-├── docker-compose.yml             # Full stack Docker setup
-├── Dockerfile                     # API/worker container
-└── requirements.txt               # Python dependencies
+│   ├── conftest.py                    # pytest fixtures (test DB, client, redis mock)
+│   ├── test_api.py                    # FastAPI endpoint tests
+│   ├── test_clustering.py             # KMeans pipeline tests
+│   ├── test_dedup.py                  # Deduplication tests
+│   ├── test_qa.py                     # RAG + citation tests
+│   ├── test_search.py                 # Hybrid search tests
+│   └── test_tasks.py                  # Normalizer + task tests
+├── .env.example                       # Environment variable template
+├── alembic.ini
+├── docker-compose.yml
+├── Dockerfile
+└── requirements.txt
 ```
