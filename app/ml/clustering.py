@@ -24,6 +24,9 @@ Interview notes
 * Near-identical postings (same role, different office location) land in
   the same cluster — correct semantically; cluster size ≠ distinct
   headcount if such duplicates exist.
+* Cluster IDs are reassigned on every run (KMeans integer labels are
+  arbitrary).  Cross-run identity is NOT tracked — add centroid matching
+  (cosine similarity + Hungarian algorithm) before building a trend endpoint.
 """
 
 import json
