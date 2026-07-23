@@ -34,6 +34,7 @@ class QARequest(BaseModel):
 class QAResponse(BaseModel):
     answer: Optional[str]
     sources: list[dict]
+    cited_ids: list[int] = []
     cached: bool
     model: Optional[str] = None
     latency_ms: int

@@ -40,6 +40,29 @@ except ImportError:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _parse_cited_ids(answer: str, postings: list[dict]) -> list[int]:
+    """
+    Extract [N] citation markers from the model's answer and map them to real
+    posting IDs from the retrieved set.
+
+    Any [N] where N is out of range (> len(postings) or < 1) is silently
+    dropped — it has no corresponding retrieved document and cannot be
+    validated.  The returned list preserves first-appearance order and is
+    deduplicated.
+    """
+    import re
+    seen: list[int] = []
+    seen_set: set[int] = set()
+    for m in re.finditer(r'\[(\d+)\]', answer):
+        n = int(m.group(1))
+        if 1 <= n <= len(postings):
+            pid = postings[n - 1]["id"]
+            if pid not in seen_set:
+                seen.append(pid)
+                seen_set.add(pid)
+    return seen
+
+
 def _cache_key(question: str, mode: str) -> str:
     digest = hashlib.sha256(f"{question}|{mode}|{N_SOURCES}".encode()).hexdigest()
     return f"{CACHE_PREFIX}{digest}"
@@ -102,6 +125,11 @@ def answer_question(
             raw = redis_client.get(cache_key)
             if raw:
                 payload = json.loads(raw)
+                # cited_ids may be absent in entries written before this field was added
+                if "cited_ids" not in payload:
+                    payload["cited_ids"] = _parse_cited_ids(
+                        payload.get("answer") or "", payload.get("sources") or []
+                    )
                 payload["cached"] = True
                 payload["latency_ms"] = round((time.monotonic() - t0) * 1000)
                 return payload
@@ -160,11 +188,13 @@ def answer_question(
         temperature=0.2,
         max_tokens=MAX_TOKENS,
     )
-    answer = completion.choices[0].message.content.strip()
+    answer     = completion.choices[0].message.content.strip()
+    cited_ids  = _parse_cited_ids(answer, postings)
 
     payload = {
         "answer":     answer,
         "sources":    postings,
+        "cited_ids":  cited_ids,
         "cached":     False,
         "model":      completion.model,
         "latency_ms": round((time.monotonic() - t0) * 1000),
@@ -176,7 +206,12 @@ def answer_question(
             redis_client.setex(
                 cache_key,
                 CACHE_TTL,
-                json.dumps({"answer": answer, "sources": postings, "model": completion.model}),
+                json.dumps({
+                    "answer":    answer,
+                    "sources":   postings,
+                    "cited_ids": cited_ids,
+                    "model":     completion.model,
+                }),
             )
         except Exception:
             logger.warning("Redis write failed; answer not cached")

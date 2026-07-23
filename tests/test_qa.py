@@ -189,3 +189,111 @@ def test_ask_endpoint_invalid_mode(client):
     """Pydantic rejects unknown mode values."""
     resp = client.post("/qa/ask", json={"question": "What jobs are there?", "mode": "magic"})
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Citation filtering — the guarantee
+# ---------------------------------------------------------------------------
+
+def test_citation_filtering_strips_out_of_range_reference(db):
+    """
+    If the model returns [9] or [10] when only 8 sources were retrieved, those
+    markers must not appear in cited_ids — they have no corresponding posting.
+    This is the test that proves the guarantee, independent of whether a real
+    Groq call happens to come back clean.
+    """
+    # Model response cites [1] (valid) and [9], [10] (out of range for 8 sources)
+    hallucinated_answer = (
+        "Based on the postings, [1] looks relevant. "
+        "Also see [9] and [10] for additional context."
+    )
+    mock_msg = MagicMock()
+    mock_msg.content = hallucinated_answer
+    mock_completion = MagicMock()
+    mock_completion.choices = [MagicMock(message=mock_msg)]
+    mock_completion.model = "llama-3.1-8b-instant"
+
+    with patch("app.search.rag._Groq") as MockGroq:
+        MockGroq.return_value.chat.completions.create.return_value = mock_completion
+
+        from app.search.rag import answer_question
+        result = answer_question(
+            "What backend jobs are open?",
+            db=db,
+            mode="fts",
+            redis_client=None,
+            groq_api_key="test-key",
+        )
+
+    cited = result["cited_ids"]
+    # [9] and [10] are out of range — must not appear
+    sources = result["sources"]
+    valid_ids = {s["id"] for s in sources}
+    assert all(cid in valid_ids for cid in cited), (
+        f"cited_ids contains IDs not in retrieved set: {set(cited) - valid_ids}"
+    )
+    # The answer text still contains [9]/[10] as-is (we don't rewrite prose),
+    # but cited_ids must only list the validated ones
+    assert 9 not in cited
+    assert 10 not in cited
+
+
+def test_citation_filtering_valid_references_preserved(db):
+    """Valid [N] markers within range all appear in cited_ids, deduplicated."""
+    answer_with_repeats = "See [1] for Python roles. [2] is also strong. [1] appears again."
+    mock_msg = MagicMock()
+    mock_msg.content = answer_with_repeats
+    mock_completion = MagicMock()
+    mock_completion.choices = [MagicMock(message=mock_msg)]
+    mock_completion.model = "llama-3.1-8b-instant"
+
+    with patch("app.search.rag._Groq") as MockGroq:
+        MockGroq.return_value.chat.completions.create.return_value = mock_completion
+
+        from app.search.rag import answer_question
+        result = answer_question(
+            "What Python jobs?",
+            db=db,
+            mode="fts",
+            redis_client=None,
+            groq_api_key="test-key",
+        )
+
+    cited = result["cited_ids"]
+    sources = result["sources"]
+    valid_ids = {s["id"] for s in sources}
+
+    # All cited IDs must be in retrieved set
+    assert all(cid in valid_ids for cid in cited)
+    # No duplicates
+    assert len(cited) == len(set(cited))
+
+
+def test_parse_cited_ids_unit():
+    """Unit test for _parse_cited_ids — no DB, no model."""
+    from app.search.rag import _parse_cited_ids
+
+    postings = [{"id": 101}, {"id": 202}, {"id": 303}]
+
+    # Normal case: [1] → 101, [3] → 303
+    assert _parse_cited_ids("See [1] and [3].", postings) == [101, 303]
+
+    # Out-of-range [4] with only 3 sources — dropped
+    assert _parse_cited_ids("See [4].", postings) == []
+
+    # [0] is not a valid 1-indexed citation — dropped
+    assert _parse_cited_ids("See [0].", postings) == []
+
+    # Deduplication: [2] appears twice — only one entry
+    result = _parse_cited_ids("[2] is great. Also [2].", postings)
+    assert result == [202]
+
+    # Mixed valid and invalid
+    result = _parse_cited_ids("[1] ok [5] bad [2] ok", postings)
+    assert result == [101, 202]
+
+    # Empty answer
+    assert _parse_cited_ids("", postings) == []
+
+    # No citation markers
+    assert _parse_cited_ids("No citations here.", postings) == []
