@@ -75,11 +75,20 @@ def _best_k(embeddings: np.ndarray) -> tuple[int, dict[int, float]]:
 def _cluster_top_skills(
     cluster_member_ids: dict[int, list[int]],
     db,
+    n_total: int,
     n: int = 5,
 ) -> dict[int, list[str]]:
     """
-    For each cluster_id → list[posting_id], return the top-n skill names
-    by frequency within that cluster.
+    Return the top-n discriminating skills per cluster, scored by a
+    TF-IDF analog on the structured Skill/PostingSkill vocabulary:
+
+        score(skill, cluster) = (cluster_freq / cluster_size)
+                              / (corpus_freq  / n_total)
+
+    Raw frequency would surface corpus-dominant skills (e.g. "Go" at 30.6%)
+    in every cluster label.  Dividing by corpus frequency down-weights
+    globally common skills and up-weights skills that are
+    over-represented in this cluster relative to the whole corpus.
     """
     from sqlalchemy import text
 
@@ -87,6 +96,7 @@ def _cluster_top_skills(
     if not all_ids:
         return {k: [] for k in cluster_member_ids}
 
+    # Per-cluster counts: how many postings in this cluster have each skill
     rows = db.execute(
         text("""
             SELECT ps.posting_id, s.name
@@ -96,6 +106,18 @@ def _cluster_top_skills(
         """),
         {"ids": all_ids},
     ).fetchall()
+
+    # Corpus-wide counts: how many postings (of all n_total) have each skill
+    global_rows = db.execute(
+        text("""
+            SELECT s.name, COUNT(DISTINCT ps.posting_id) AS cnt
+            FROM posting_skills ps
+            JOIN skills s ON ps.skill_id = s.id
+            GROUP BY s.name
+        """),
+    ).fetchall()
+    # fraction of ALL postings that carry this skill
+    corpus_freq: dict[str, float] = {r[0]: r[1] / n_total for r in global_rows}
 
     # posting_id → cluster_id reverse map
     pid_to_cluster: dict[int, int] = {}
@@ -109,10 +131,34 @@ def _cluster_top_skills(
         if cid is not None:
             cluster_skill_counts[cid][skill_name] += 1
 
-    return {
-        cid: [name for name, _ in counter.most_common(n)]
-        for cid, counter in cluster_skill_counts.items()
-    }
+    # Minimum cluster-presence floor: skill must appear in ≥ 3% of the cluster
+    # (at least 3 postings) to be a label candidate.  Without a floor, TF-IDF
+    # elevates skills that appear in 1–2 postings but happen to be rare globally,
+    # producing labels like "Hadoop" for a 529-posting cluster where it appears
+    # only 6 times.
+    MIN_CLUSTER_FRAC = 0.03
+    MIN_CLUSTER_ABS  = 3
+
+    result: dict[int, list[str]] = {}
+    for cid, counter in cluster_skill_counts.items():
+        cluster_size = len(cluster_member_ids[cid])
+        if cluster_size == 0:
+            result[cid] = []
+            continue
+        min_count = max(MIN_CLUSTER_ABS, MIN_CLUSTER_FRAC * cluster_size)
+        scores: dict[str, float] = {}
+        for skill_name, count in counter.items():
+            if count < min_count:
+                continue
+            cf = count / cluster_size                              # cluster frequency
+            gf = corpus_freq.get(skill_name, 1.0 / n_total)      # global frequency (floor at 1/N)
+            scores[skill_name] = cf / gf
+        if not scores:
+            # No skill meets the floor — fall back to raw frequency top-n
+            scores = {name: count for name, count in counter.items()}
+        result[cid] = [name for name, _ in sorted(scores.items(), key=lambda x: -x[1])[:n]]
+
+    return result
 
 
 def _make_label(top_skills: list[str]) -> str:
@@ -172,8 +218,8 @@ def run_clustering(db, k: int | None = None) -> dict:
     for pid, label in zip(posting_ids, labels):
         cluster_members[int(label)].append(pid)
 
-    # --- 5. Compute top skills per cluster ---
-    cluster_top = _cluster_top_skills(cluster_members, db)
+    # --- 5. Compute top skills per cluster (TF-IDF scored against corpus) ---
+    cluster_top = _cluster_top_skills(cluster_members, db, n_total=n)
 
     # --- 6. Persist ---
     run_at = datetime.utcnow()

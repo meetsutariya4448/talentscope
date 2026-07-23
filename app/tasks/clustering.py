@@ -1,4 +1,4 @@
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import app as celery_app
 from app.database import SessionLocal
 import logging
 
