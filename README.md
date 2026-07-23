@@ -262,21 +262,34 @@ Current run (1,530 postings, k=8, silhouette=0.3646):
 
 ## Benchmark
 
-Measured against 1,530 postings (all embedded); 12 queries × 5 repeats, 2 warm-up runs discarded.
+**Environment**: Apple M2 (8-core, 8 GB RAM), macOS, local dev machine — not a production deployment.
+Python 3.11.7 (x86 via Rosetta 2).  PostgreSQL 15 running locally.
+
+**Methodology**: 12 queries × 50 repeats per mode, 2 warm-up runs per query discarded.
+600 samples per mode.  No HTTP overhead — search functions called directly.
 Results stored in `evals/benchmark.json`.
 
-| Mode | p50 | p95 | p99 |
-|---|---|---|---|
-| FTS | 6.7 ms | 9.0 ms | 10.1 ms |
-| Vector (HNSW) | 13.0 ms | 18.3 ms | 24.6 ms |
-| Hybrid (RRF) | 23.8 ms | 28.6 ms | 32.3 ms |
+| Mode | p50 | p95 | p99 | σ |
+|---|---|---|---|---|
+| FTS (GIN/tsvector) | 6.9 ms | 11.1 ms | 13.9 ms | 2.1 ms |
+| Vector (HNSW cosine) | 14.9 ms | 21.2 ms | 28.0 ms | 8.4 ms |
+| Hybrid (RRF) | 28.9 ms | 39.2 ms | 46.4 ms | 6.0 ms |
 
-Embedding throughput: **182.7 sentences/sec** (5.47 ms/sentence, all-MiniLM-L6-v2, CPU).
+**Embedding latency** (all-MiniLM-L6-v2, CPU):
+- Single-query encode (search path): **p50 = 12.3 ms** — this is included in the vector/hybrid numbers above, so HNSW scan alone is ~3 ms.
+- Batch encode (ingestion backfill): **131 sentences/sec** (48-sentence batch).
+
+**Concurrency note**: `fts_search` and `vector_search` are called sequentially in the current
+implementation (hybrid p50 ≈ FTS p50 + vector p50).  Both are independent read queries and
+could be parallelized, but the synchronous SQLAlchemy `Session` is not thread-safe — parallelization
+requires either separate sessions per sub-query or a migration to async SQLAlchemy.  At 1.5 k
+postings the saving (~6 ms) is modest; it becomes material at 50 k+ postings.
 
 Reproduce:
 
 ```bash
-python scripts/benchmark.py
+python scripts/benchmark.py          # 50 repeats (default)
+python scripts/benchmark.py --repeats 100
 ```
 
 ---
@@ -308,7 +321,7 @@ python scripts/benchmark.py
 | interactive Chart.js dashboard | `dashboard/index.html` — Chart.js 4.x bar + line + horizontal bar charts |
 
 ### Bullet 3 — Semantic hybrid search
-> "Implemented **semantic hybrid search** combining a **pgvector HNSW index** (all-MiniLM-L6-v2, 384-dim, cosine) with PostgreSQL **GIN full-text search**, fused via **Reciprocal Rank Fusion** — achieving **p95 ≤ 29 ms** for hybrid and **p95 ≤ 19 ms** for vector-only across 1,530 embedded postings."
+> "Implemented **semantic hybrid search** combining a **pgvector HNSW index** (all-MiniLM-L6-v2, 384-dim, cosine) with PostgreSQL **GIN full-text search**, fused via **Reciprocal Rank Fusion** — p95 ≤ 40 ms for hybrid and ≤ 22 ms for vector-only across 1,530 postings (600-sample benchmark on Apple M2)."
 
 | Phrase | Code location |
 |---|---|

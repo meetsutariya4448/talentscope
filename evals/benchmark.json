@@ -1,45 +1,65 @@
 {
-  "run_at": "2026-07-23T15:46:59.955611+00:00",
+  "run_at": "2026-07-23T15:55:18.905730+00:00",
   "corpus": {
     "total_postings": 1530,
     "embedded_postings": 1530
   },
-  "queries": 12,
-  "repeats": 5,
-  "warmup": 2,
+  "config": {
+    "queries": 12,
+    "repeats": 50,
+    "warmup": 2
+  },
+  "env": {
+    "cpu": "Apple M2",
+    "logical_cores": 8,
+    "ram_gb": 8,
+    "os": "Darwin 25.5.0",
+    "python": "3.11.7",
+    "note": "local dev machine \u2014 not a production environment"
+  },
   "embedding": {
-    "sentences": 48,
-    "elapsed_s": 0.263,
-    "sentences_per_sec": 182.7,
-    "ms_per_sentence": 5.47
+    "single_query": {
+      "p50_ms": 12.32,
+      "p95_ms": 24.86,
+      "mean_ms": 17.25
+    },
+    "batch": {
+      "n_sentences": 48,
+      "elapsed_s": 0.366,
+      "sentences_per_sec": 131.1,
+      "ms_per_sentence": 7.63
+    }
   },
   "search": {
     "fts": {
-      "p50_ms": 6.7,
-      "p95_ms": 9.0,
-      "p99_ms": 10.1,
-      "min_ms": 2.7,
-      "max_ms": 10.3,
-      "mean_ms": 6.7,
-      "n": 60
+      "p50_ms": 6.9,
+      "p95_ms": 11.1,
+      "p99_ms": 13.9,
+      "min_ms": 2.4,
+      "max_ms": 18.9,
+      "mean_ms": 7.2,
+      "stdev_ms": 2.1,
+      "n": 600
     },
     "vector": {
-      "p50_ms": 13.0,
-      "p95_ms": 18.3,
-      "p99_ms": 24.6,
-      "min_ms": 11.0,
-      "max_ms": 24.6,
-      "mean_ms": 13.7,
-      "n": 60
+      "p50_ms": 14.9,
+      "p95_ms": 21.2,
+      "p99_ms": 28.0,
+      "min_ms": 10.5,
+      "max_ms": 165.9,
+      "mean_ms": 15.7,
+      "stdev_ms": 8.4,
+      "n": 600
     },
     "hybrid": {
-      "p50_ms": 23.8,
-      "p95_ms": 28.6,
-      "p99_ms": 32.3,
-      "min_ms": 18.9,
-      "max_ms": 35.5,
-      "mean_ms": 24.3,
-      "n": 60
+      "p50_ms": 28.9,
+      "p95_ms": 39.2,
+      "p99_ms": 46.4,
+      "min_ms": 18.4,
+      "max_ms": 99.5,
+      "mean_ms": 29.7,
+      "stdev_ms": 6.0,
+      "n": 600
     }
   }
 }
