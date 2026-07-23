@@ -75,18 +75,25 @@ all three probe runs: 94 ms).
 position is responsible for the tail latency.  The spikes are OS/GC jitter on
 a local dev machine.
 
-Numbers to use in interviews or on a resume:
-- **p50 = 13–15 ms** (stable across all runs)
-- **p95 = 20–40 ms** (run-to-run variance; quote the conservative end: ~40 ms)
-- **p99 = 30–60 ms** (similarly, quote ~60 ms)
-- Spike ceiling: ~95 ms, observed in 1–2 of every 600 samples
+**Authoritative numbers (vector mode) — source: `evals/benchmark.json`, 600 samples:**
 
-For a production deployment (dedicated Postgres, stable process, no GC
-contention from other requests), the tail would narrow substantially.  On this
-local dev machine, p95 ≤ 40 ms and p99 ≤ 60 ms are the honest numbers.
+| Stat | Value |
+|---|---|
+| p50 | 14.9 ms |
+| p95 | 21.2 ms |
+| p99 | 28.0 ms |
+| σ   | 8.4 ms |
 
-The README benchmark section already states "local dev machine — not a
-production environment."
+These are the numbers to cite.  The probe investigation's contribution is
+qualitative: the tail events are non-systemic OS/GC jitter, no query is
+structurally slow, and individual probe runs (taken in a less controlled
+environment with concurrent processes) showed higher p95 values (up to 37 ms)
+that reflect jitter on a loaded dev machine rather than a tighter estimate of
+the true p95.  benchmark.json is the single source of truth.
+
+For comparison — hybrid mode from the same benchmark: p95=39.2 ms, p99=46.4 ms.
+(The ~40 ms and ~60 ms figures that appeared in the original draft of this
+section were hybrid numbers, not vector.)
 
 ---
 

@@ -52,7 +52,7 @@ A distributed job market intelligence platform that ingests, deduplicates, and a
 |---|---|
 | **Ingestion** | Celery Beat tasks fetch from Greenhouse/Lever/Adzuna every 4–6 h; exact + fuzzy deduplication before upsert |
 | **Embedding** | all-MiniLM-L6-v2 (384-dim) encodes every posting; stored in pgvector column with HNSW index (m=16, ef=64) |
-| **Hybrid Search** | FTS (GIN/tsvector, OR semantics) + vector cosine fused via Reciprocal Rank Fusion (k=60); p95 ≤ 29 ms |
+| **Hybrid Search** | FTS (GIN/tsvector, OR semantics) + vector cosine fused via Reciprocal Rank Fusion (k=60); p95 ≤ 40 ms |
 | **RAG Q&A** | 8 hybrid-retrieved postings → Groq llama-3.1-8b-instant; Redis SHA-256 cache (TTL 1 h); server-side citation validation |
 | **Role Clustering** | KMeans on pgvector embeddings; k auto-selected by silhouette grid (5–15); TF-IDF cluster labels; daily Beat task |
 | **Analytics** | Skill demand, salary trends, top companies; Chart.js dashboard |
@@ -321,7 +321,7 @@ python scripts/benchmark.py --repeats 100
 | interactive Chart.js dashboard | `dashboard/index.html` — Chart.js 4.x bar + line + horizontal bar charts |
 
 ### Bullet 3 — Semantic hybrid search
-> "Implemented **semantic hybrid search** combining a **pgvector HNSW index** (all-MiniLM-L6-v2, 384-dim, cosine) with PostgreSQL **GIN full-text search**, fused via **Reciprocal Rank Fusion** — p95 ≤ 40 ms for hybrid and ≤ 22 ms for vector-only across 1,530 postings (600-sample benchmark on Apple M2)."
+> "Implemented **semantic hybrid search** combining a **pgvector HNSW index** (all-MiniLM-L6-v2, 384-dim, cosine) with PostgreSQL **GIN full-text search**, fused via **Reciprocal Rank Fusion** — p95 39.2 ms for hybrid and 21.2 ms for vector-only across 1,530 postings (600-sample benchmark, Apple M2 local dev)."
 
 | Phrase | Code location |
 |---|---|
@@ -330,7 +330,7 @@ python scripts/benchmark.py --repeats 100
 | cosine distance | `app/search/hybrid.py:vector_search()` — `p.embedding <=> CAST(:vec AS vector)` |
 | GIN full-text search | `app/search/hybrid.py:fts_search()` — OR-tsquery over `search_vector` |
 | Reciprocal Rank Fusion | `app/search/hybrid.py:reciprocal_rank_fusion()` — `Σ 1/(60 + rank_i)` |
-| p95 latency numbers | `evals/benchmark.json` — 12 queries × 5 repeats, warm-up discarded |
+| p95 latency numbers | `evals/benchmark.json` — 12 queries × 50 repeats, 2 warm-up per query discarded |
 
 ### Bullet 4 — RAG Q&A and role clustering
 > "Built a **RAG market Q&A system** (Groq llama-3.1-8b-instant, **Redis cache** with SHA-256 key + 1 h TTL, server-side citation validation) and automated **KMeans role clustering** (k auto-selected by silhouette grid over 5–15, **TF-IDF cluster labels** with 3% floor) as a scheduled **Celery Beat** task — confirmed via end-to-end Beat smoke test."
