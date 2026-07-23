@@ -3,6 +3,7 @@ from sqlalchemy import (
     Column, Integer, String, Text, Numeric, DateTime, ForeignKey,
     UniqueConstraint, Index
 )
+import json
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
@@ -41,6 +42,7 @@ class Posting(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     search_vector = Column(TSVECTOR)
     embedding = Column(Vector(384))
+    cluster_id = Column(Integer, nullable=True)
 
     company = relationship("Company", back_populates="postings")
     posting_skills = relationship("PostingSkill", back_populates="posting")
@@ -52,6 +54,22 @@ class Posting(Base):
         Index("ix_postings_posted_at", "posted_at"),
         Index("ix_postings_source", "source"),
     )
+
+
+class SkillCluster(Base):
+    __tablename__ = "skill_clusters"
+
+    id         = Column(Integer, primary_key=True)
+    cluster_id = Column(Integer, nullable=False)
+    label      = Column(String(255))
+    size       = Column(Integer)
+    top_skills = Column(Text)       # JSON-encoded list[str]
+    silhouette = Column(Numeric(8, 6))
+    run_at     = Column(DateTime, nullable=False)
+
+    @property
+    def top_skills_list(self) -> list[str]:
+        return json.loads(self.top_skills or "[]")
 
 
 class Skill(Base):

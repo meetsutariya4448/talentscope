@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from app.database import get_db
-from app.models import Posting, Skill, PostingSkill
+from app.models import Posting, Skill, PostingSkill, SkillCluster
 from datetime import datetime, timedelta
 from typing import Optional
+import json
 
 router = APIRouter()
 
@@ -93,6 +94,57 @@ def top_companies(
     )
     results = db.execute(q).all()
     return {"companies": [{"name": r[0], "count": r[1]} for r in results]}
+
+
+@router.get("/clusters")
+def get_clusters(db: Session = Depends(get_db)):
+    """Return the most recent clustering run: per-cluster label, size, and top skills."""
+    latest_run_at = db.execute(select(func.max(SkillCluster.run_at))).scalar()
+
+    if not latest_run_at:
+        return {"clusters": [], "run_at": None, "k": 0, "silhouette": None,
+                "message": "No clustering run yet — POST /analytics/clusters/run to trigger one"}
+
+    clusters = db.execute(
+        select(SkillCluster)
+        .where(SkillCluster.run_at == latest_run_at)
+        .order_by(SkillCluster.size.desc())
+    ).scalars().all()
+
+    sil = float(clusters[0].silhouette) if clusters and clusters[0].silhouette else None
+
+    return {
+        "run_at":     latest_run_at.isoformat(),
+        "k":          len(clusters),
+        "silhouette": round(sil, 4) if sil else None,
+        "clusters": [
+            {
+                "cluster_id": c.cluster_id,
+                "label":      c.label,
+                "size":       c.size,
+                "top_skills": json.loads(c.top_skills or "[]"),
+            }
+            for c in clusters
+        ],
+    }
+
+
+@router.post("/clusters/run")
+def trigger_clustering(
+    k: Optional[int] = Query(default=None, ge=2, le=30, description="Fix k; omit to auto-select via silhouette"),
+    db: Session = Depends(get_db),
+):
+    """
+    Run KMeans clustering synchronously and return the summary.
+    Intended for on-demand use (CI seeding, demo setup); production runs
+    are scheduled via Celery Beat at 03:00 UTC daily.
+    """
+    from app.ml.clustering import run_clustering
+    result = run_clustering(db, k=k)
+    if "error" in result:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail=result["error"])
+    return result
 
 
 def _parse_window(window: str) -> Optional[datetime]:

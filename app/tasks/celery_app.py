@@ -12,6 +12,7 @@ app = Celery(
         "app.tasks.adzuna",
         "app.tasks.scheduler",
         "app.tasks.embedding",
+        "app.tasks.clustering",
     ],
 )
 
@@ -42,5 +43,9 @@ app.conf.beat_schedule = {
     "embed-missing-postings": {
         "task": "app.tasks.embedding.embed_missing_postings",
         "schedule": crontab(minute=15, hour="*"),  # hourly, offset to avoid congestion
+    },
+    "recluster-postings": {
+        "task": "app.tasks.clustering.run_clustering_task",
+        "schedule": crontab(minute=0, hour=3),     # daily at 03:00 UTC after overnight ingest
     },
 }

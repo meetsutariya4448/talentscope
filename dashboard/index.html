@@ -196,6 +196,21 @@
       height: 280px;
     }
 
+    /* Cluster panel */
+    .cluster-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+
+    .cluster-meta span {
+      margin-right: 1.25rem;
+    }
+
+    .cluster-meta b {
+      color: var(--text);
+    }
+
     /* Search/Filter */
     .search-bar {
       background: var(--surface);
@@ -512,6 +527,21 @@
     </div>
   </section>
 
+  <!-- Role Clusters -->
+  <section>
+    <h2>Role Clusters</h2>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div class="chart-title">Posting Distribution by Role Cluster</div>
+        <div id="cluster-meta" class="cluster-meta"></div>
+      </div>
+      <div class="chart-container" style="height:220px;">
+        <canvas id="clusterChart"></canvas>
+      </div>
+      <div id="cluster-skills-table" style="margin-top:1.25rem;"></div>
+    </div>
+  </section>
+
   <!-- Job Search -->
   <section>
     <h2>Job Postings</h2>
@@ -578,9 +608,10 @@
 
 <script>
   const API = '';  // same origin
-  let skillChart = null;
-  let salaryChart = null;
-  let currentPage = 1;
+  let skillChart   = null;
+  let salaryChart  = null;
+  let clusterChart = null;
+  let currentPage  = 1;
 
   // ── Utilities ──────────────────────────────────────────────────────────────
 
@@ -795,6 +826,116 @@
     }
   }
 
+  // ── Role Clusters ─────────────────────────────────────────────────────────
+
+  const CLUSTER_PALETTE = [
+    '#6c63ff','#00d4aa','#ffd166','#ff6b6b','#63b3ed',
+    '#e879f9','#06d6a0','#f7931e','#fc8181','#68d391',
+    '#a0aec0','#4fd1c5',
+  ];
+
+  async function loadClusters() {
+    try {
+      const data = await apiFetch('/analytics/clusters');
+
+      if (!data.clusters || data.clusters.length === 0) {
+        document.getElementById('cluster-meta').textContent =
+          data.message || 'No clustering data — trigger a run via POST /analytics/clusters/run';
+        return;
+      }
+
+      const { clusters, k, silhouette, run_at } = data;
+      const runDate = run_at ? new Date(run_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+      document.getElementById('cluster-meta').innerHTML =
+        `<span>k = <b>${k}</b></span>` +
+        `<span>silhouette = <b>${silhouette !== null ? silhouette.toFixed(4) : '—'}</b></span>` +
+        `<span>last run <b>${runDate}</b></span>`;
+
+      const labels = clusters.map(c => c.label);
+      const sizes  = clusters.map(c => c.size);
+      const colors = clusters.map((_, i) => CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]);
+
+      const ctx = document.getElementById('clusterChart').getContext('2d');
+      if (clusterChart) clusterChart.destroy();
+
+      clusterChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Postings',
+            data: sizes,
+            backgroundColor: colors.map(c => c + 'bb'),
+            borderColor: colors,
+            borderWidth: 1,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => ` ${ctx.raw} postings`,
+              },
+              backgroundColor: '#1a1d2e',
+              titleColor: '#e2e8f0',
+              bodyColor: '#8892a4',
+              borderColor: '#2e3250',
+              borderWidth: 1,
+            },
+          },
+          scales: {
+            x: {
+              grid: { color: '#2e3250' },
+              ticks: { color: '#8892a4', font: { size: 11 } },
+            },
+            y: {
+              grid: { display: false },
+              ticks: { color: '#e2e8f0', font: { size: 12 }, font: { weight: '500' } },
+            },
+          },
+        },
+      });
+
+      // Skills detail table
+      const rows = clusters.map((c, i) => {
+        const skillTags = (c.top_skills || []).map(s =>
+          `<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border-radius:4px;font-size:0.7rem;background:${CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]}22;color:${CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]};border:1px solid ${CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]}44">${escHtml(s)}</span>`
+        ).join('');
+        return `<tr>
+          <td style="width:12px;padding:8px 12px;">
+            <div style="width:10px;height:10px;border-radius:2px;background:${CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]};"></div>
+          </td>
+          <td style="padding:8px 12px;font-weight:500;color:var(--text);font-size:0.875rem;">${escHtml(c.label)}</td>
+          <td style="padding:8px 12px;">${skillTags}</td>
+          <td style="padding:8px 12px;color:var(--text-muted);font-size:0.8rem;text-align:right;">${c.size} postings</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('cluster-skills-table').innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);">
+              <th style="width:12px;"></th>
+              <th style="padding:6px 12px;text-align:left;font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;">Cluster</th>
+              <th style="padding:6px 12px;text-align:left;font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;">Top Skills</th>
+              <th style="padding:6px 12px;text-align:right;font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;">Size</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+
+    } catch (e) {
+      console.error('Clusters load error:', e);
+    }
+  }
+
   // ── Job Search ─────────────────────────────────────────────────────────────
 
   async function searchPostings(page = 1) {
@@ -918,6 +1059,7 @@
     loadStats();
     loadSkillDemand('30d');
     loadSalaryTrends();
+    loadClusters();
     searchPostings(1);
   });
 </script>
