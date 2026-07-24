@@ -243,18 +243,37 @@ A daily Celery Beat task (`03:00 UTC`) clusters all embedded postings by semanti
    with a 3% / 3-posting presence floor to suppress both globally dominant terms and rare-skill noise.
 5. Persist to `skill_clusters` table; bulk-update `postings.cluster_id`.
 
-Current run (1,530 postings, k=8, silhouette=0.3646):
+Current run (1,530 postings, k=7, silhouette=0.3478):
 
 | Cluster | Label | Size |
 |---|---|---|
 | 0 | API Design · SQL | 528 |
 | 1 | Bash · Grafana | 269 |
-| 2 | Spring · Microservices | 138 |
-| 3 | Elasticsearch · CSS | 200 |
-| 4 | PHP · Jenkins | 260 |
-| 5 | Rails · React | 77 |
-| 6 | Agile · Kubernetes | 37 |
-| 7 | Linux · Java | 21 |
+| 3 | PHP · Jenkins | 265 |
+| 4 | Elasticsearch · CSS | 200 |
+| 2 | Spring · Machine Learning | 171 |
+| 6 | Rails · React | 77 |
+| 5 | Linux · Go | 20 |
+
+**Silhouette grid** (full, ordered fetch, `random_state=42`):
+
+| k | score | |
+|---|---|---|
+| 5 | 0.3446 | |
+| 6 | 0.3442 | |
+| **7** | **0.3478** | **← selected** |
+| 8 | 0.2285 | |
+| 9–15 | 0.19–0.24 | |
+
+**Note on k stability**: k=5, k=6, k=7 score within ~0.4% of each other —
+this corpus genuinely does not have a sharply dominant cluster count in the
+5–7 range.  Small changes to the embedding set can shift which k scores
+highest.  k=8 appearing as the winner in earlier runs was an artifact of a
+missing `ORDER BY` in the embedding fetch: without it, PostgreSQL heap-scan
+order varies between process launches, causing KMeans (position-indexed
+centroid init with `random_state=42`) to produce different solutions.
+The fix (`ORDER BY id` on the embedding query) makes grid results
+fully deterministic and reproducible.
 
 > **Known limitation**: cluster IDs are reassigned on every fit.  Cross-run identity is not tracked — add centroid matching (cosine + Hungarian algorithm) before building a trend endpoint.
 

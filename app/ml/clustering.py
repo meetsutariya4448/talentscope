@@ -188,8 +188,13 @@ def run_clustering(db, k: int | None = None) -> dict:
     from app.models import Posting, SkillCluster
 
     # --- 1. Pull embeddings ---
+    # ORDER BY id is required: without it PostgreSQL heap-scan order varies
+    # between process launches, making KMeans centroid initialisation
+    # (random_state=42 picks by position) non-reproducible across runs.
     rows = db.execute(
-        select(Posting.id, Posting.embedding).where(Posting.embedding.isnot(None))
+        select(Posting.id, Posting.embedding)
+        .where(Posting.embedding.isnot(None))
+        .order_by(Posting.id)
     ).all()
 
     n = len(rows)
