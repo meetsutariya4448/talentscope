@@ -167,6 +167,35 @@ def test_clustering_not_enough_data():
     assert "error" in result
 
 
+def test_embedding_fetch_is_deterministic(db):
+    """
+    Embedding fetch must return posting IDs in the same order on repeated
+    calls and in strict ascending-id order.
+
+    Without ORDER BY, PostgreSQL heap-scan order varies between process
+    launches, causing KMeans (random_state=42 picks centroids by position)
+    to produce different solutions across runs — the bug this regression
+    catches.  Adding .order_by(Posting.id) makes the grid fully reproducible.
+    """
+    from sqlalchemy import select
+    from app.models import Posting
+
+    _seed_postings_with_embeddings(db, n=20, n_clusters=3, seed=99)
+
+    q = (
+        select(Posting.id, Posting.embedding)
+        .where(Posting.embedding.isnot(None))
+        .order_by(Posting.id)
+    )
+    ids_run1 = [r[0] for r in db.execute(q).all()]
+    ids_run2 = [r[0] for r in db.execute(q).all()]
+
+    # Same order across two calls
+    assert ids_run1 == ids_run2, "Embedding fetch returned different ID order on second call"
+    # Order is strictly ascending — proves ORDER BY id is in effect
+    assert ids_run1 == sorted(ids_run1), "Embedding fetch IDs are not in ascending order"
+
+
 # ---------------------------------------------------------------------------
 # API endpoint tests
 # ---------------------------------------------------------------------------
