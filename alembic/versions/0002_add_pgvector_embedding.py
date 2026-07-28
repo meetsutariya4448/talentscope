@@ -8,7 +8,6 @@ Create Date: 2024-01-02 00:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 revision: str = "0002"
 down_revision: Union[str, None] = "0001"
@@ -19,14 +18,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-    op.add_column(
-        "postings",
-        sa.Column("embedding", sa.Text(), nullable=True),  # stored as native vector via raw DDL
-    )
-    # Replace the TEXT column with an actual vector(384) column.
-    # SQLAlchemy's add_column can't express the pgvector type directly, so we
-    # drop and recreate using raw DDL.
-    op.execute("ALTER TABLE postings DROP COLUMN embedding")
+    # pgvector's vector type can't be expressed via SQLAlchemy's add_column,
+    # so we use raw DDL directly.
     op.execute("ALTER TABLE postings ADD COLUMN embedding vector(384)")
 
     # HNSW index: supports incremental inserts without rebuild, better than IVFFlat
