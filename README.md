@@ -63,7 +63,7 @@ A distributed job market intelligence platform that ingests, deduplicates, and a
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/yourname/talentscope.git
+git clone https://github.com/meetsutariya4448/talentscope.git
 cd talentscope
 
 # 2. Copy environment file
