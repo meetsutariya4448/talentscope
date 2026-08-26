@@ -1,0 +1,83 @@
+# Posting-panel target company list — the human-editable source of truth,
+# synced into `monitored_companies` on every worker/beat startup
+# (app.ingestion.company_registry.sync_monitored_companies).
+#
+# Grow this toward the project's 200-400 company target incrementally. Before
+# adding a token, verify it actually returns postings, e.g.:
+#   curl -s https://api.ashbyhq.com/posting-api/job-board/<token> | python3 -c \
+#     "import sys,json; print(len(json.load(sys.stdin).get('jobs', [])))"
+# A bad token doesn't error loudly — it just shows up as a permanent
+# 'http_error' or 'empty' in collection_run_companies and pollutes the health
+# check, so don't take one on faith.
+
+greenhouse:
+  - { token: stripe, name: Stripe }
+  - { token: notion, name: Notion }
+  - { token: figma, name: Figma }
+  - { token: vercel, name: Vercel }
+  - { token: linear, name: Linear }
+  - { token: brex, name: Brex }
+  - { token: rippling, name: Rippling }
+  - { token: gusto, name: Gusto }
+  - { token: chime, name: Chime }
+  - { token: coinbase, name: Coinbase }
+  - { token: plaid, name: Plaid }
+  - { token: airtable, name: Airtable }
+  - { token: asana, name: Asana }
+  - { token: dropbox, name: Dropbox }
+  - { token: hubspot, name: HubSpot }
+  - { token: intercom, name: Intercom }
+  - { token: segment, name: Segment }
+  - { token: cloudflare, name: Cloudflare }
+  - { token: datadog, name: Datadog }
+  - { token: hashicorp, name: HashiCorp }
+  - { token: mongodb, name: MongoDB }
+  - { token: confluent, name: Confluent }
+  - { token: databricks, name: Databricks }
+  - { token: snowflake-computing, name: Snowflake }
+  - { token: okta, name: Okta }
+  - { token: pagerduty, name: PagerDuty }
+  - { token: elastic, name: Elastic }
+  - { token: palantir, name: Palantir }
+  - { token: pinterest, name: Pinterest }
+  - { token: reddit, name: Reddit }
+  - { token: roblox, name: Roblox }
+  - { token: robinhood, name: Robinhood }
+  - { token: lyft, name: Lyft }
+  - { token: doordash, name: DoorDash }
+  - { token: instacart, name: Instacart }
+  - { token: carta, name: Carta }
+  - { token: benchling, name: Benchling }
+  - { token: lattice, name: Lattice }
+  - { token: retool, name: Retool }
+  - { token: canva, name: Canva }
+  - { token: miro, name: Miro }
+  - { token: amplitude, name: Amplitude }
+  - { token: mixpanel, name: Mixpanel }
+  - { token: heap, name: Heap }
+  - { token: posthog, name: PostHog }
+  - { token: sentry, name: Sentry }
+
+lever:
+  - { token: netflix, name: Netflix }
+  - { token: airbnb, name: Airbnb }
+  - { token: spotify, name: Spotify }
+  - { token: square, name: Square }
+  - { token: shopify, name: Shopify }
+  - { token: slack, name: Slack }
+  - { token: zoom, name: Zoom }
+  - { token: box, name: Box }
+  - { token: splunk, name: Splunk }
+  - { token: zenefits, name: Zenefits }
+  - { token: calendly, name: Calendly }
+  - { token: brex, name: Brex }
+
+# Verified 2026-08-19 against api.ashbyhq.com/posting-api/job-board/<token>
+# (all returning nonzero open postings at check time).
+ashby:
+  - { token: ramp, name: Ramp }
+  - { token: vanta, name: Vanta }
+  - { token: watershed, name: Watershed }
+  - { token: substack, name: Substack }
+  - { token: openai, name: OpenAI }
+  - { token: runway, name: Runway }
