@@ -32,6 +32,13 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      # .env's DATABASE_URL/REDIS_URL default to localhost for local
+      # (non-Docker) dev — inside this container "localhost" is the
+      # container itself, not the postgres/redis services. These override
+      # env_file's values (compose's environment: takes precedence).
+      DATABASE_URL: postgresql://talentscope:talentscope@postgres:5432/talentscope
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,8 +49,33 @@ services:
 
   worker:
     build: .
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
+    # Explicit -Q: task_routes (app/tasks/celery_app.py) sends tasks to
+    # named queues, and a worker only consumes queues it's told to listen
+    # on — without this flag, everything but the implicit default queue
+    # would sit undelivered.
+    # Clear stale multiprocess metric files before starting — the volume
+    # persists across restarts, but files left by a previous (now-dead)
+    # process's pid would otherwise be double-counted by MultiProcessCollector.
+    command: >
+      sh -c "rm -rf /tmp/prometheus_multiproc/* &&
+             celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q ingestion,embedding,maintenance"
     env_file: .env
+    environment:
+      # See api service's comment — env_file's localhost-based URLs don't
+      # resolve to the postgres/redis services from inside a container.
+      DATABASE_URL: postgresql://talentscope:talentscope@postgres:5432/talentscope
+      REDIS_URL: redis://redis:6379/0
+      # Aggregates Counter/Histogram/Gauge writes across the prefork pool's
+      # forked children — see app/observability.py's module docstring.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+    ports:
+      - "9808:9808"   # worker Prometheus /metrics — separate process/port from the api's
+    # task_acks_late + worker_prefetch_multiplier=1 mean an in-flight task
+    # survives a hard kill (redelivered to another worker), but a *graceful*
+    # SIGTERM (docker stop, k8s pod termination) should let it finish first.
+    # Celery's warm shutdown waits for running tasks up to this grace period
+    # before the container is SIGKILLed.
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,11 +84,16 @@ services:
     volumes:
       - .:/app
       - hf_cache:/root/.cache/huggingface
+      - prometheus_multiproc:/tmp/prometheus_multiproc
 
   beat:
     build: .
     command: celery -A app.tasks.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql://talentscope:talentscope@postgres:5432/talentscope
+      REDIS_URL: redis://redis:6379/0
+    stop_grace_period: 15s
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,6 +102,50 @@ services:
     volumes:
       - .:/app
 
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+      - worker
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # Container-level CPU/memory for every service, generically — the
+  # standard source for these (rather than hand-rolling per-process
+  # psutil gauges) and the same component Kubernetes' kubelet bundles
+  # for node/pod metrics, so this doubles as a preview of the Phase 4
+  # metrics story.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    ports:
+      - "8081:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    privileged: true
+
 volumes:
   postgres_data:
   hf_cache:
+  prometheus_data:
+  prometheus_multiproc:
+  grafana_data:

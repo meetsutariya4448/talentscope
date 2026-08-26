@@ -1,0 +1,104 @@
+{
+  "title": "TalentScope — System Overview",
+  "uid": "talentscope-overview",
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    { "id": 100, "type": "row", "title": "API", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 1, "type": "timeseries", "title": "API latency (p50 / p95 / p99)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "API requests/sec by status",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[5m])) by (status)", "legendFormat": "{{status}}" }
+      ]
+    },
+
+    { "id": 101, "type": "row", "title": "Database", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 } },
+    {
+      "id": 3, "type": "timeseries", "title": "DB query latency p95 by operation",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket[5m])) by (le, operation))", "legendFormat": "{{operation}}" }
+      ]
+    },
+
+    { "id": 102, "type": "row", "title": "Ingestion / Celery", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 } },
+    {
+      "id": 4, "type": "timeseries", "title": "Jobs/sec by task",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "targets": [
+        { "expr": "sum(rate(celery_task_total{state=\"SUCCESS\"}[5m])) by (task_name)", "legendFormat": "{{task_name}}" }
+      ]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Failed tasks/sec + retries/sec",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "targets": [
+        { "expr": "sum(rate(celery_task_total{state=\"FAILURE\"}[5m])) by (task_name)", "legendFormat": "failed: {{task_name}}" },
+        { "expr": "sum(rate(celery_task_total{state=\"RETRY\"}[5m])) by (task_name)", "legendFormat": "retry: {{task_name}}" }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Task duration p95 by task",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(celery_task_duration_seconds_bucket[5m])) by (le, task_name))", "legendFormat": "{{task_name}}" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Worker queue depth",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 27 },
+      "targets": [
+        { "expr": "celery_queue_depth", "legendFormat": "{{queue}}" }
+      ]
+    },
+    {
+      "id": 8, "type": "stat", "title": "Active workers",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 27 },
+      "targets": [
+        { "expr": "celery_active_workers" }
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Ingestion lag by source",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 35 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "ingestion_lag_seconds", "legendFormat": "{{source}}" }
+      ]
+    },
+
+    { "id": 103, "type": "row", "title": "Infrastructure", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 } },
+    {
+      "id": 10, "type": "timeseries", "title": "Container CPU usage",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\"talentscope.*\"}[5m])) by (name)", "legendFormat": "{{name}}" }
+      ]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Container memory usage",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "expr": "container_memory_usage_bytes{name=~\"talentscope.*\"}", "legendFormat": "{{name}}" }
+      ]
+    }
+  ]
+}

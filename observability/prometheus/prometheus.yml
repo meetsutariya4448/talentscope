@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # FastAPI process: HTTP request latency, DB query latency (single-process
+  # registry — uvicorn runs one process, no multiprocess aggregation needed).
+  - job_name: talentscope-api
+    static_configs:
+      - targets: ["api:8000"]
+    metrics_path: /metrics
+
+  # Celery worker: task outcomes/duration (aggregated across the prefork
+  # pool's child processes via PROMETHEUS_MULTIPROC_DIR), queue depth,
+  # active workers, ingestion lag. Served on a separate port/process from
+  # the API — see app/observability.py's module docstring for why.
+  - job_name: talentscope-worker
+    static_configs:
+      - targets: ["worker:9808"]
+    metrics_path: /metrics
+
+  # Container-level CPU/memory for every service (see docker-compose.yml's
+  # cadvisor service comment).
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
