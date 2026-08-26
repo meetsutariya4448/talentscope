@@ -2,12 +2,11 @@ import httpx
 from sqlalchemy.orm import Session
 from app.tasks.celery_app import app as celery_app
 from app.database import SessionLocal
-from app.models import Company, Posting, Skill, PostingSkill
+from app.models import Company, Skill
 from app.ingestion.normalizer import normalize_adzuna
-from app.ingestion.deduplicator import is_exact_duplicate
-from app.ingestion.skills import SKILLS, extract_skills
+from app.ingestion.ingest import ingest_posting
+from app.ingestion.skills import SKILLS
 from app.config import settings
-from sqlalchemy import text
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,8 +35,7 @@ def _get_or_create_company(db: Session, name: str) -> int:
     slug = name.lower().strip().replace(" ", "-")[:255]
     company = db.query(Company).filter_by(slug=slug).first()
     if not company:
-        from app.models import Company as CompanyModel
-        company = CompanyModel(name=name, slug=slug)
+        company = Company(name=name, slug=slug)
         db.add(company)
         db.flush()
     return company.id
@@ -85,36 +83,27 @@ def fetch_adzuna(self, query: str, page: int = 1):
 
     db: Session = SessionLocal()
     inserted_ids: list[int] = []
+    changed_ids: list[int] = []
     try:
         skill_map = _ensure_skills(db)
         for job in results:
             data = normalize_adzuna(job)
-            if is_exact_duplicate(db, data["source"], data["source_id"]):
-                continue
-
             company_name = data.pop("company_name", "") or "Unknown"
             data["company_id"] = _get_or_create_company(db, company_name)
 
-            posting = Posting(**{k: v for k, v in data.items() if hasattr(Posting, k)})
-            db.add(posting)
-            db.flush()
-
-            desc = (data.get("title", "") + " " + (data.get("description") or ""))
-            for skill_name in extract_skills(desc):
-                if skill_name in skill_map:
-                    db.add(PostingSkill(posting_id=posting.id, skill_id=skill_map[skill_name]))
-
-            db.execute(
-                text(
-                    "UPDATE postings SET search_vector = to_tsvector('english', "
-                    "coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(location,'')) "
-                    "WHERE id = :id"
-                ),
-                {"id": posting.id},
-            )
-            inserted_ids.append(posting.id)
+            # Adzuna is a search index, not a company's own board: no company_token,
+            # so left_truncated is always true and it never drives disappeared_at
+            # (see app.ingestion.panel.AUTHORITATIVE_SOURCES).
+            result = ingest_posting(db, data, skill_map, company_token=None)
+            if result.is_new:
+                inserted_ids.append(result.posting_id)
+            elif result.content_changed:
+                changed_ids.append(result.posting_id)
         db.commit()
-        logger.info(f"Adzuna '{query}' p{page}: {len(inserted_ids)}/{len(results)} new postings")
+        logger.info(
+            f"Adzuna '{query}' p{page}: {len(inserted_ids)} new, "
+            f"{len(changed_ids)} updated (of {len(results)} fetched)"
+        )
     except Exception:
         db.rollback()
         raise
@@ -122,7 +111,10 @@ def fetch_adzuna(self, query: str, page: int = 1):
         db.close()
 
     from app.tasks.embedding import embed_posting
-    for pid in inserted_ids:
+    for pid in inserted_ids + changed_ids:
         embed_posting.delay(pid)
 
-    return {"query": query, "page": page, "fetched": len(results), "inserted": len(inserted_ids)}
+    return {
+        "query": query, "page": page, "fetched": len(results),
+        "inserted": len(inserted_ids), "updated": len(changed_ids),
+    }

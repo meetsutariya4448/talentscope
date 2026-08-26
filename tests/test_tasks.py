@@ -88,8 +88,16 @@ def test_fetch_greenhouse_task_eager(db):
     db.commit()
     company_id = company.id
 
+    # record_company_check() opens its own SessionLocal() by design (so a
+    # company's health record lands even if the caller's transaction later
+    # fails) — point that at the test engine too, via a fresh session per
+    # call, rather than letting it fall through to the real dev database.
+    from sqlalchemy.orm import sessionmaker
+    test_session_factory = sessionmaker(bind=db.get_bind())
+
     with patch("app.tasks.greenhouse.httpx.Client") as mock_client_cls, \
          patch("app.tasks.greenhouse.SessionLocal", return_value=db), \
+         patch("app.ingestion.panel.SessionLocal", test_session_factory), \
          patch("app.tasks.embedding.embed_posting") as mock_embed:
         mock_client = MagicMock()
         mock_client_cls.return_value.__enter__.return_value = mock_client
@@ -105,6 +113,7 @@ def test_fetch_greenhouse_task_eager(db):
             }]
         }
         mock_response.raise_for_status.return_value = None
+        mock_response.status_code = 200
         mock_client.get.return_value = mock_response
 
         from app.tasks.greenhouse import fetch_greenhouse

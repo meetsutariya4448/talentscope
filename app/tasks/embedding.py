@@ -1,6 +1,7 @@
 import logging
 from sqlalchemy import select
 from app.tasks.celery_app import app as celery_app
+from app.tasks.redis_utils import get_redis as _get_redis
 from app.database import SessionLocal
 from app.models import Posting
 from app.search.encoder import get_model
@@ -9,6 +10,24 @@ logger = logging.getLogger(__name__)
 
 # Re-export for callers that import _get_model directly (e.g. tests)
 _get_model = get_model
+
+# In-flight guard for the hourly backfill: without it, a batch of postings
+# still embedding from the previous firing gets re-selected (still
+# embedding IS NULL) and re-dispatched, doubling work under any backlog.
+# TTL matches the beat cadence — if a claimed task hasn't cleared its key
+# within an hour it's presumed lost, and the id becomes eligible again.
+PENDING_NS = "talentscope:embed:pending"
+PENDING_TTL = 3600
+
+
+def _clear_pending(posting_id: int) -> None:
+    rc = _get_redis()
+    if rc is None:
+        return
+    try:
+        rc.delete(f"{PENDING_NS}:{posting_id}")
+    except Exception:
+        logger.warning("Failed to clear pending-embed marker for posting %s", posting_id)
 
 
 def _build_text(posting: Posting) -> str:
@@ -48,6 +67,7 @@ def embed_posting(self, posting_id: int):
         raise
     finally:
         db.close()
+        _clear_pending(posting_id)
 
 
 @celery_app.task(
@@ -72,10 +92,26 @@ def embed_missing_postings(self, batch_size: int = 200):
             .limit(batch_size)
         ).scalars().all()
 
+        rc = _get_redis()
+        dispatched = 0
+        skipped_in_flight = 0
         for pid in ids:
+            if rc is not None:
+                # Atomic claim: only the first caller to see this id un-set
+                # gets to dispatch it, so an overlapping firing (previous
+                # hour's batch still embedding) skips ids already in flight
+                # instead of re-dispatching duplicate work.
+                claimed = rc.set(f"{PENDING_NS}:{pid}", "1", nx=True, ex=PENDING_TTL)
+                if not claimed:
+                    skipped_in_flight += 1
+                    continue
             embed_posting.delay(pid)
+            dispatched += 1
 
-        logger.info(f"embed_missing_postings: dispatched {len(ids)} tasks")
-        return {"dispatched": len(ids)}
+        logger.info(
+            f"embed_missing_postings: dispatched {dispatched} tasks, "
+            f"skipped {skipped_in_flight} already in flight"
+        )
+        return {"dispatched": dispatched, "skipped_in_flight": skipped_in_flight}
     finally:
         db.close()

@@ -3,7 +3,6 @@ Phase 2 tests: RRF logic (pure), API mode param, hybrid vs FTS integration.
 """
 import numpy as np
 import pytest
-from sqlalchemy import text
 
 from app.search.hybrid import reciprocal_rank_fusion
 from app.models import Company, Posting
@@ -127,14 +126,7 @@ def test_hybrid_recall_not_worse_than_fts(client, db, monkeypatch):
         currency="USD",
     )
     db.add(p)
-    db.flush()
-
-    db.execute(text(
-        "UPDATE postings "
-        "SET search_vector = to_tsvector('english', "
-        "coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || coalesce(location,'')) "
-        "WHERE id = :id"
-    ), {"id": p.id})
+    db.flush()  # search_vector is a GENERATED column — auto-populates on flush
 
     # Give it a unit vector so vector_search can find it
     vec = np.zeros(384)

@@ -65,6 +65,34 @@ def normalize_lever(job: dict, company_id: int) -> dict:
     }
 
 
+def normalize_ashby(job: dict, company_id: int) -> dict:
+    """Normalize an Ashby public job-board API posting to common shape."""
+    title = job.get("title", "")
+    location = job.get("location", "")
+    description = _strip_html(job.get("descriptionHtml") or "")
+    url = job.get("jobUrl") or job.get("applyUrl") or ""
+    source_id = str(job.get("id", ""))
+    posted_at = None
+    if job.get("publishedAt"):
+        try:
+            posted_at = datetime.fromisoformat(job["publishedAt"].replace("Z", "+00:00"))
+        except Exception:
+            pass
+    return {
+        "company_id": company_id,
+        "title": title,
+        "location": location,
+        "description": description,
+        "salary_min": None,
+        "salary_max": None,
+        "currency": "USD",
+        "source": "ashby",
+        "source_id": source_id,
+        "url": url,
+        "posted_at": posted_at,
+    }
+
+
 def normalize_adzuna(job: dict) -> dict:
     """Normalize an Adzuna API result to common shape."""
     title = job.get("title", "")

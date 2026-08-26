@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
     retry_backoff=True,
     retry_backoff_max=300,
     max_retries=3,
+    # Silhouette grid search (k=5..15) over the full embedded corpus can run
+    # longer than the global 10-minute job timeout as the corpus grows.
+    time_limit=1200,
+    soft_time_limit=1140,
 )
 def run_clustering_task(self, k: int | None = None):
     """Celery task: cluster all embedded postings and persist results."""

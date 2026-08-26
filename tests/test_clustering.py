@@ -7,7 +7,6 @@ deterministic — no model load, no network.
 import json
 import numpy as np
 import pytest
-from sqlalchemy import text
 
 
 # ---------------------------------------------------------------------------
@@ -48,13 +47,7 @@ def _seed_postings_with_embeddings(db, n: int, n_clusters: int = 3, dim: int = 3
             embedding=vec.tolist(),
         )
         db.add(p)
-        db.flush()
-
-        # Minimal tsvector so FTS doesn't error
-        db.execute(
-            text("UPDATE postings SET search_vector = to_tsvector('english', title) WHERE id = :id"),
-            {"id": p.id},
-        )
+        db.flush()  # search_vector is a GENERATED column — auto-populates from title on flush
         ids.append(p.id)
 
     db.commit()

@@ -1,95 +1,40 @@
 import math
 import logging
-import redis as redis_lib
 
 from app.tasks.celery_app import app as celery_app
 from app.tasks.greenhouse import fetch_greenhouse
 from app.tasks.lever import fetch_lever
+from app.tasks.ashby import fetch_ashby
 from app.tasks.adzuna import fetch_adzuna, ADZUNA_QUERIES
+from app.tasks.redis_utils import get_redis as _get_redis
 from app.database import SessionLocal
 from app.models import Company
-from app.config import settings
+from app.ingestion.company_registry import load_target_companies, sync_monitored_companies
 
 logger = logging.getLogger(__name__)
 
 CURSOR_NS = "talentscope:scheduler:cursor"
 
-# Companies with Greenhouse boards
-GREENHOUSE_COMPANIES = [
-    ("stripe", "Stripe"),
-    ("notion", "Notion"),
-    ("figma", "Figma"),
-    ("vercel", "Vercel"),
-    ("linear", "Linear"),
-    ("brex", "Brex"),
-    ("rippling", "Rippling"),
-    ("gusto", "Gusto"),
-    ("chime", "Chime"),
-    ("coinbase", "Coinbase"),
-    ("plaid", "Plaid"),
-    ("airtable", "Airtable"),
-    ("asana", "Asana"),
-    ("dropbox", "Dropbox"),
-    ("hubspot", "HubSpot"),
-    ("intercom", "Intercom"),
-    ("segment", "Segment"),
-    ("cloudflare", "Cloudflare"),
-    ("datadog", "Datadog"),
-    ("hashicorp", "HashiCorp"),
-    ("mongodb", "MongoDB"),
-    ("confluent", "Confluent"),
-    ("databricks", "Databricks"),
-    ("snowflake-computing", "Snowflake"),
-    ("okta", "Okta"),
-    ("pagerduty", "PagerDuty"),
-    ("elastic", "Elastic"),
-    ("palantir", "Palantir"),
-    ("pinterest", "Pinterest"),
-    ("reddit", "Reddit"),
-    ("roblox", "Roblox"),
-    ("robinhood", "Robinhood"),
-    ("lyft", "Lyft"),
-    ("doordash", "DoorDash"),
-    ("instacart", "Instacart"),
-    ("carta", "Carta"),
-    ("benchling", "Benchling"),
-    ("lattice", "Lattice"),
-    ("retool", "Retool"),
-    ("canva", "Canva"),
-    ("miro", "Miro"),
-    ("amplitude", "Amplitude"),
-    ("mixpanel", "Mixpanel"),
-    ("heap", "Heap"),
-    ("posthog", "PostHog"),
-    ("sentry", "Sentry"),
-]
-
-# Companies with Lever boards
-LEVER_COMPANIES = [
-    ("netflix", "Netflix"),
-    ("airbnb", "Airbnb"),
-    ("spotify", "Spotify"),
-    ("square", "Square"),
-    ("shopify", "Shopify"),
-    ("slack", "Slack"),
-    ("zoom", "Zoom"),
-    ("box", "Box"),
-    ("splunk", "Splunk"),
-    ("zenefits", "Zenefits"),
-    ("calendly", "Calendly"),
-    ("brex", "Brex"),
-]
+# Target company lists now live in config/target_companies.yml (the editable
+# source of truth, synced into `monitored_companies` on worker/beat startup —
+# see sync_monitored_companies_from_yaml below), not hardcoded here.
+_TARGET_COMPANIES = load_target_companies()
+GREENHOUSE_COMPANIES = [(c["token"], c.get("name", c["token"])) for c in _TARGET_COMPANIES.get("greenhouse", [])]
+LEVER_COMPANIES = [(c["token"], c.get("name", c["token"])) for c in _TARGET_COMPANIES.get("lever", [])]
+ASHBY_COMPANIES = [(c["token"], c.get("name", c["token"])) for c in _TARGET_COMPANIES.get("ashby", [])]
 
 BATCH_SIZE = 10
 
 
-def _get_redis() -> redis_lib.Redis | None:
+def sync_monitored_companies_from_yaml() -> None:
+    """Called on worker_ready / beat_init (see app.tasks.celery_app) so the
+    database — not just the YAML file — has each company's monitoring
+    start/stop timestamps."""
+    db = SessionLocal()
     try:
-        client = redis_lib.Redis.from_url(settings.redis_url, socket_connect_timeout=2)
-        client.ping()
-        return client
-    except Exception:
-        return None
+        sync_monitored_companies(db, load_target_companies())
+    finally:
+        db.close()
 
 
 def _next_batch(redis_client, key: str, items: list, batch_size: int) -> list:
@@ -116,54 +61,43 @@ def _get_or_create_company(db, name: str, slug: str) -> int:
     return company.id
 
 
-@celery_app.task(name="app.tasks.scheduler.dispatch_greenhouse_batch")
-def dispatch_greenhouse_batch():
+def _dispatch_batch(source: str, cursor_key: str, companies: list, fetch_task) -> dict:
     rc = _get_redis()
     if rc is None:
-        logger.warning("Redis unavailable — falling back to batch 0 for Greenhouse")
-        batch = GREENHOUSE_COMPANIES[:BATCH_SIZE]
+        logger.warning("Redis unavailable — falling back to batch 0 for %s", source)
+        batch = companies[:BATCH_SIZE]
     else:
         try:
-            batch = _next_batch(rc, f"{CURSOR_NS}:greenhouse", GREENHOUSE_COMPANIES, BATCH_SIZE)
+            batch = _next_batch(rc, cursor_key, companies, BATCH_SIZE)
         except Exception as exc:
-            logger.warning("Redis error selecting Greenhouse batch, falling back to batch 0: %s", exc)
-            batch = GREENHOUSE_COMPANIES[:BATCH_SIZE]
+            logger.warning("Redis error selecting %s batch, falling back to batch 0: %s", source, exc)
+            batch = companies[:BATCH_SIZE]
 
     db = SessionLocal()
     try:
         for token, name in batch:
             company_id = _get_or_create_company(db, name, token)
-            fetch_greenhouse.delay(token, company_id)
+            fetch_task.delay(token, company_id)
     finally:
         db.close()
 
-    logger.info("Dispatched Greenhouse batch: %s", [t for t, _ in batch])
+    logger.info("Dispatched %s batch: %s", source, [t for t, _ in batch])
     return {"dispatched": [t for t, _ in batch]}
+
+
+@celery_app.task(name="app.tasks.scheduler.dispatch_greenhouse_batch")
+def dispatch_greenhouse_batch():
+    return _dispatch_batch("greenhouse", f"{CURSOR_NS}:greenhouse", GREENHOUSE_COMPANIES, fetch_greenhouse)
 
 
 @celery_app.task(name="app.tasks.scheduler.dispatch_lever_batch")
 def dispatch_lever_batch():
-    rc = _get_redis()
-    if rc is None:
-        logger.warning("Redis unavailable — falling back to batch 0 for Lever")
-        batch = LEVER_COMPANIES[:BATCH_SIZE]
-    else:
-        try:
-            batch = _next_batch(rc, f"{CURSOR_NS}:lever", LEVER_COMPANIES, BATCH_SIZE)
-        except Exception as exc:
-            logger.warning("Redis error selecting Lever batch, falling back to batch 0: %s", exc)
-            batch = LEVER_COMPANIES[:BATCH_SIZE]
+    return _dispatch_batch("lever", f"{CURSOR_NS}:lever", LEVER_COMPANIES, fetch_lever)
 
-    db = SessionLocal()
-    try:
-        for slug, name in batch:
-            company_id = _get_or_create_company(db, name, slug)
-            fetch_lever.delay(slug, company_id)
-    finally:
-        db.close()
 
-    logger.info("Dispatched Lever batch: %s", [s for s, _ in batch])
-    return {"dispatched": [s for s, _ in batch]}
+@celery_app.task(name="app.tasks.scheduler.dispatch_ashby_batch")
+def dispatch_ashby_batch():
+    return _dispatch_batch("ashby", f"{CURSOR_NS}:ashby", ASHBY_COMPANIES, fetch_ashby)
 
 
 @celery_app.task(name="app.tasks.scheduler.dispatch_adzuna_batch")
