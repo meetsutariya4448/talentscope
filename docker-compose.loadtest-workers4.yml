@@ -1,0 +1,12 @@
+# Focused follow-up overlay (evals/load-test.md): 4 uvicorn worker
+# processes instead of 1, to test whether the CPU saturation found under
+# docker-compose.loadtest.yml is a process-concurrency limit (workers
+# would fix it) or genuine aggregate compute demand exceeding the host's
+# core count (workers won't help, since the same 8 physical cores are
+# still shared either way).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml -f docker-compose.loadtest-workers4.yml up -d api
+services:
+  api:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4

@@ -1,0 +1,16 @@
+# Overlay for load testing: docker-compose.yml's api command runs
+# `uvicorn --reload`, a dev-only flag that adds filesystem-watcher
+# overhead and (more importantly) forces a single process — --reload is
+# incompatible with --workers. Neither is representative of what's being
+# measured here (this app's real serving capacity), so this overlay drops
+# --reload for a clean baseline.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d postgres redis api worker beat
+#
+# For the --workers follow-up test (evals/load-test.md), swap the api
+# command below for:
+#   uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+services:
+  api:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
