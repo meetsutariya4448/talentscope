@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 import logging
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 TOP_K = 200   # candidates fetched from each source before fusion.
@@ -120,6 +122,13 @@ def vector_search(
     from app.search.encoder import get_model
     vec = get_model().encode(query_text, normalize_embeddings=True).tolist()
     vec_str = "[" + ",".join(str(v) for v in vec) + "]"
+
+    if settings.vector_ef_search is not None:
+        # SET LOCAL scopes to the current transaction only — never leaks to
+        # other requests sharing this connection from the pool. Not a bind
+        # parameter: SET doesn't support them: this is a validated int from
+        # Settings, not user input, so direct interpolation is safe.
+        db.execute(text(f"SET LOCAL hnsw.ef_search = {int(settings.vector_ef_search)}"))
 
     sql = """
         SELECT p.id

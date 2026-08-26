@@ -247,12 +247,23 @@ def run_clustering(db, k: int | None = None) -> dict:
         ))
     db.add_all(cluster_rows)
 
-    # Bulk-update posting.cluster_id
-    for label_int, pid in zip(labels.tolist(), posting_ids):
-        db.execute(
-            text("UPDATE postings SET cluster_id = :cid WHERE id = :pid"),
-            {"cid": int(label_int), "pid": pid},
-        )
+    # Set-based bulk update: one round trip for all n postings via unnest()
+    # joined against the table, instead of n individual UPDATE statements.
+    # The previous per-row Python loop was the single largest number of DB
+    # round trips in the whole pipeline (n_postings vs. the one SELECT that
+    # pulled the embeddings in the first place).
+    db.execute(
+        text("""
+            UPDATE postings AS p
+            SET cluster_id = v.cluster_id
+            FROM (SELECT unnest(:pids) AS posting_id, unnest(:cids) AS cluster_id) AS v
+            WHERE p.id = v.posting_id
+        """),
+        {
+            "pids": posting_ids,
+            "cids": [int(label_int) for label_int in labels.tolist()],
+        },
+    )
 
     db.commit()
 
