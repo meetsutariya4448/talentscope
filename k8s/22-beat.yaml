@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beat
+  namespace: talentscope
+spec:
+  # MUST stay at 1 — celery beat has no leader election, so a second
+  # replica would double-fire every scheduled task (see
+  # app/tasks/celery_app.py's beat_schedule). No HPA is defined for this
+  # Deployment; do not add one.
+  replicas: 1
+  strategy:
+    type: Recreate   # avoid a brief window with two beat pods during a rolling update
+  selector:
+    matchLabels: { app: beat }
+  template:
+    metadata:
+      labels: { app: beat }
+    spec:
+      containers:
+        - name: beat
+          image: talentscope:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - -A
+            - app.tasks.celery_app
+            - beat
+            - --loglevel=info
+            - --scheduler=celery.beat:PersistentScheduler
+            - --schedule=/beat-data/celerybeat-schedule
+          envFrom:
+            - configMapRef: { name: talentscope-config }
+            - secretRef: { name: talentscope-secrets }
+          volumeMounts:
+            - name: schedule
+              mountPath: /beat-data
+            - name: companies-config
+              mountPath: /app/config/target_companies.yml
+              subPath: target_companies.yml
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
+      volumes:
+        - name: schedule
+          persistentVolumeClaim: { claimName: beat-schedule }
+        - name: companies-config
+          configMap: { name: target-companies }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beat-schedule
+  namespace: talentscope
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 64Mi } }

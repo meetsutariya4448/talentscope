@@ -1,0 +1,84 @@
+# TalentScope on Kubernetes
+
+Deployed and validated end-to-end against a real 3-node `kind` cluster
+(1 control-plane + 2 worker nodes) — every manifest here was actually
+applied and debugged against real failures, not written and left untested.
+
+## Layout
+
+```
+k8s/
+  00-namespace.yaml
+  01-configmap.yaml       # non-secret config (DB/Redis hostnames — in-cluster Service names, not localhost)
+  02-secret.example.yaml  # template only — apply.sh generates the real Secret from .env
+  10-postgres.yaml        # StatefulSet + headless Service + PVC
+  11-redis.yaml           # Deployment + PVC + Service
+  12-migrate-job.yaml     # one-shot alembic upgrade head
+  20-api.yaml             # Deployment + Service (NodePort) + HPA
+  21-worker.yaml          # Deployment + Service (for its own /metrics) + HPA
+  22-beat.yaml            # Deployment, replicas: 1 (see below) + PVC for schedule state
+  99-metrics-server.yaml  # verified upstream manifest, kind-patched — see file header
+  kind-config.yaml
+  apply.sh                # deploys everything in dependency order
+  scale-demo.sh           # the 2→4→8 throughput demo, see below
+```
+
+```bash
+kind create cluster --config k8s/kind-config.yaml
+docker build -t talentscope:latest .
+kind load docker-image talentscope:latest --name talentscope
+kubectl apply -f k8s/99-metrics-server.yaml   # once per cluster
+bash k8s/apply.sh
+```
+
+## Design decisions
+
+- **Postgres as a StatefulSet**, not a Deployment — stable network identity + `volumeClaimTemplates` for per-replica storage, the correct primitive even at 1 replica.
+- **Beat is pinned to `replicas: 1` with no HPA, ever.** Celery beat has no leader election — a second replica double-fires every scheduled task (see `app/tasks/celery_app.py`'s `beat_schedule`). `strategy: Recreate` avoids a brief two-pod window during rolling updates that a default `RollingUpdate` strategy would otherwise create.
+- **`/health` vs `/ready`** (see `docs/observability.md`) map directly onto `livenessProbe`/`readinessProbe` — liveness never touches DB/Redis (a slow dependency shouldn't get a healthy process restarted), readiness checks both and pulls the pod out of the Service's endpoints if either fails.
+- **The worker's own probes hit its Prometheus `/metrics` on :9808**, not an application-level check — there's no HTTP surface on a Celery worker otherwise, and a responsive metrics endpoint is a reasonable proxy for "the parent process is alive." Found under load (see "What broke" below) that the default 1s probe timeout was too aggressive for a worker doing real CPU-bound inference work; bumped to 5s/failureThreshold 3-5.
+- **ConfigMap vs Secret split**: `01-configmap.yaml` holds hostnames only; `02-secret.example.yaml` is a template, never a real manifest — `apply.sh` generates the actual Secret from local `.env` via `kubectl create secret generic --from-literal`, which is fine for a disposable local kind cluster and is exactly where a real deployment swaps in an External Secrets Operator pulling from AWS Secrets Manager instead (see the Terraform phase for the AWS-side half of that).
+- **`PROMETHEUS_MULTIPROC_DIR` is worker-only**, deliberately kept out of the shared ConfigMap — see "What broke" below for why that distinction is load-bearing, not stylistic.
+
+## Horizontal autoscaling
+
+Both `api` and `worker` have a `HorizontalPodAutoscaler` on CPU utilization (70% target) — the practical baseline that works with plain `metrics-server`, no extra operator. **Queue-depth-driven scaling** (a KEDA `ScaledObject` reading Redis list length, or `celery_queue_depth` via a Prometheus adapter) is the more semantically correct trigger for a task queue specifically — CPU only rises once a worker is *already* processing something, so it reacts a step later than queue depth would. Documented here as the concrete next step rather than implemented: it's a second operator + CRDs beyond what this phase installed.
+
+## Worker scaling throughput demo (2 → 4 → 8 replicas)
+
+`k8s/scale-demo.sh`: pauses the worker HPA (it would otherwise fight
+`kubectl scale` by reacting to the load the demo itself generates), then at
+each replica count seeds a batch of synthetic postings, dispatches
+`embed_posting` (real `sentence-transformers` CPU-bound inference — not a
+`sleep()` stand-in) for all of them, and polls the database for completion.
+
+Completion is measured via **the database**, not any single worker pod's
+`/metrics` — this was a real bug in the first version of this script. Each
+replica's Prometheus counters are aggregated only across *its own* forked
+child processes (`prometheus_client`'s multiprocess mode — see
+`app/observability.py`'s module docstring); `kubectl port-forward
+svc/worker` sticks to one arbitrary endpoint pod, so at replica counts > 1,
+scraping it would silently undercount work done by every other pod.
+`postings.embedding IS NOT NULL` is unambiguous ground truth regardless of
+which pod did the work.
+
+Results: see `evals/k8s-scaling.md` (generated by the script, not hand-written).
+
+```bash
+BATCH_SIZE=150 bash k8s/scale-demo.sh
+```
+
+## What broke while validating this (and the actual fixes)
+
+Building manifests from memory and never running them is how you end up
+presenting broken YAML in an interview. Everything below was a real failure
+against the real cluster:
+
+1. **metrics-server RBAC** — a hand-rolled `ClusterRole`/`ClusterRoleBinding` looked complete but panicked on startup (`unable to load configmap based request-header-client-ca-file`), then a second round of hand-patching still missed the `system:auth-delegator` ClusterRoleBinding and the `extension-apiserver-authentication` Role — both non-obvious, neither documented anywhere obvious. Fixed by fetching the verified upstream manifest and patching in exactly one kind-specific flag (`--kubelet-insecure-tls`) rather than continuing to reconstruct it from memory.
+2. **`PROMETHEUS_MULTIPROC_DIR` in the shared ConfigMap crashed every api and beat pod on startup** (`FileNotFoundError: /tmp/prometheus_multiproc/gauge_mostrecent_1.db`) — that env var only makes sense paired with the emptyDir mounted in the worker's own pod spec; api/beat had the var but no matching volume, so `prometheus_client`'s `Gauge.__init__` crashed on import before the process reached any health check. Moved it out of the shared ConfigMap into the worker Deployment's own `env:`.
+3. **Worker readiness probes flapped under real CPU load** — dispatching a batch of real embedding inference work (concurrency=4, CPU-bound) transiently starved the metrics server's WSGI thread past the default 1s probe timeout, marking healthy-but-busy pods "Unhealthy" and pulling them from the Service's endpoints. Bumped `timeoutSeconds`/`failureThreshold`.
+4. **Docker image was 10.7GB** — `.dockerignore` didn't exist, so `COPY . .` pulled in the 1.2GB local `.venv`; separately, `sentence-transformers`' unpinned `torch` dependency resolved to the default PyPI build, which is **CUDA-enabled** (`torch 2.13.0+cu130`) despite this deployment never touching a GPU — multiple GB of unused NVIDIA driver libraries. Added `.dockerignore` and pinned `torch==2.2.2` via `--extra-index-url https://download.pytorch.org/whl/cpu` in `requirements.txt`. Final image: **1.94GB**, an 82% reduction — this mattered immediately, since `kind load docker-image` on the 10.7GB image was still running after several minutes when the 1.94GB rebuild finished loading into all 3 nodes in under a minute.
+5. **8 worker replicas running real embedding inference repeatedly destabilized the cluster** — Postgres/Redis liveness probes timing out under CPU contention and getting killed, pods stuck `Pending` on `Insufficient memory`, and eventually the whole node starving once all 8 pods actually started processing simultaneously. Root causes fixed along the way (each real, each kept in the manifests regardless of the final ceiling): `--concurrency=4` per pod meant replica count and per-pod concurrency multiplied (2 replicas already = 8 concurrent model loads) — dropped to `--concurrency=1`; memory requests were guessed too high (768Mi) rather than measured — right-sized to 512Mi from actual `kubectl top pods` data; probe timeouts were the 1s default, too aggressive for an exec probe under real contention — bumped to 5s. Even after all three fixes, this specific laptop's CPU couldn't sustain 8 concurrent real-inference processes without cascading instability. Full narrative and the actual 2→4 throughput data (a real, reproducible ~2.5x improvement): `evals/k8s-scaling.md`.
+6. **`.env`'s `DATABASE_URL`/`REDIS_URL` default to `localhost`** — harmless for local `uvicorn --reload` dev, but would silently break `docker-compose up` too (found and fixed in the observability phase, `docs/observability.md`) — the same root cause meant the K8s ConfigMap needed real Service hostnames from the start, not a copy-paste of `.env.example`.
+
+None of these are exotic — they're the ordinary shape of "the YAML looked right" failures that only show up when something actually schedules a pod. That's the reason this phase insisted on a live cluster instead of a set of manifests nobody ran.

@@ -1,0 +1,25 @@
+.venv/
+venv/
+env/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+*.log
+*.sqlite3
+celerybeat-schedule*
+celerybeat.pid
+dump.rdb
+.DS_Store
+.env
+k8s/
+observability/
+docs/
+evals/
+README.md
+# NOTE: dashboard/ is intentionally NOT excluded — app/main.py serves it as
+# static files at runtime (StaticFiles mount at /dashboard).

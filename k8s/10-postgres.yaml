@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: talentscope
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg15
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "talentscope"
+            - name: POSTGRES_DB
+              value: "talentscope"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: talentscope-secrets, key: POSTGRES_PASSWORD }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+          # timeoutSeconds bumped from the 1s default: found under real
+          # cluster-wide CPU contention (worker pods doing real ML
+          # inference) that `pg_isready` — an exec probe, which itself needs
+          # a process fork scheduled inside the container — couldn't
+          # complete in 1s even though postgres was otherwise fine,
+          # cascading into kubelet actually killing and restarting a
+          # healthy postgres. That's a worse failure mode than a briefly
+          # stale readiness state.
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "talentscope"] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "talentscope"] }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: talentscope
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None   # headless — StatefulSet gets a stable DNS identity, not needed for a single replica but correct for the primitive

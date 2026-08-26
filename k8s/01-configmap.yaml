@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: talentscope-config
+  namespace: talentscope
+data:
+  # Non-secret settings only — credentials live in the Secret (02-secret.yaml),
+  # not here. Hostnames point at the in-cluster Service names created by
+  # 10-postgres.yaml / 11-redis.yaml, not "localhost" (see docker-compose.yml's
+  # api/worker/beat comments for why that distinction matters).
+  DATABASE_URL: "postgresql://talentscope:talentscope@postgres:5432/talentscope"
+  REDIS_URL: "redis://redis:6379/0"
+  # PROMETHEUS_MULTIPROC_DIR deliberately NOT here — it's worker-only (see
+  # 21-worker.yaml's own env:). Setting it here too broke the api pods: with
+  # the var present but no matching emptyDir mounted, prometheus_client's
+  # Gauge init tries to open a file in a directory that doesn't exist and
+  # crashes on import, before the process ever reaches a health check.
+---
+# config/target_companies.yml is deployed as its own ConfigMap generated
+# directly from the file (kubectl create configmap --from-file), not
+# hand-copied here — see k8s/apply.sh. Keeping it out of this manifest
+# avoids the YAML going stale the moment someone edits the source file.

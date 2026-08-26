@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: talentscope
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: worker }
+  template:
+    metadata:
+      labels: { app: worker }
+    spec:
+      # Warm shutdown: task_acks_late + worker_prefetch_multiplier=1 (see
+      # app/tasks/celery_app.py) mean an in-flight task survives a hard
+      # kill, but SIGTERM should still get a chance to finish it first —
+      # this must be >= Celery's own graceful-shutdown window, which is
+      # itself bounded by task_soft_time_limit (540s).
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: worker
+          image: talentscope:latest
+          imagePullPolicy: IfNotPresent
+          # --concurrency=1, not docker-compose's 4: each prefork child
+          # loads its own full copy of the sentence-transformers model
+          # (lazy-loaded per-process, not shared across the fork) — at
+          # concurrency=4, 2 replicas alone means 8 concurrent model loads,
+          # which is what actually destabilized this cluster on a laptop
+          # (Postgres's own liveness probe started timing out under the CPU
+          # contention and got killed — see docs/kubernetes.md). Set to 1
+          # so scaling replicas 2→4→8 scales *pods*, the thing being
+          # demonstrated, without also multiplying per-pod concurrency on
+          # top of it.
+          command:
+            - celery
+            - -A
+            - app.tasks.celery_app
+            - worker
+            - --loglevel=info
+            - --concurrency=1
+            - -Q
+            - ingestion,embedding,maintenance
+          ports:
+            - containerPort: 9808   # worker's own Prometheus /metrics — see app/observability.py
+          envFrom:
+            - configMapRef: { name: talentscope-config }
+            - secretRef: { name: talentscope-secrets }
+          env:
+            # Worker-only — see 01-configmap.yaml's comment on why this
+            # isn't in the shared ConfigMap. Matches the emptyDir mounted
+            # below at the same path.
+            - name: PROMETHEUS_MULTIPROC_DIR
+              value: /tmp/prometheus_multiproc
+          volumeMounts:
+            - name: multiproc
+              mountPath: /tmp/prometheus_multiproc
+            - name: companies-config
+              mountPath: /app/config/target_companies.yml
+              subPath: target_companies.yml
+          # Requests right-sized from observed `kubectl top pods` data (not
+          # guessed): a worker that has actually loaded the model and
+          # processed a task uses ~395Mi RSS; idle (model not yet loaded)
+          # is ~118Mi. 512Mi gives real headroom without the earlier 768Mi
+          # figure over-reserving enough to make 8 replicas fail to
+          # schedule ("Insufficient memory") on a 2-worker-node kind
+          # cluster despite the nodes having capacity for the actual usage.
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+          # timeoutSeconds bumped from the 1s default: found under real load
+          # (concurrency=4 running actual sentence-transformers inference)
+          # that the metrics WSGI thread can go briefly unresponsive under
+          # CPU contention, tripping readiness at the default timeout even
+          # though the worker itself was healthy and making progress.
+          livenessProbe:
+            httpGet: { path: /metrics, port: 9808 }
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /metrics, port: 9808 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        # emptyDir, not a PVC: multiprocess metric files are per-pod local
+        # state (each replica aggregates only its own forked children) — a
+        # shared PVC across replicas would be wrong, not just unnecessary.
+        - name: multiproc
+          emptyDir: {}
+        - name: companies-config
+          configMap: { name: target-companies }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker
+  namespace: talentscope
+spec:
+  selector: { app: worker }
+  ports:
+    - name: metrics
+      port: 9808
+      targetPort: 9808
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker
+  namespace: talentscope
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+  # CPU is the practical baseline here (works with plain metrics-server, no
+  # extra operator). Queue-depth-driven scaling (KEDA + a Redis
+  # ScaledObject reading celery_queue_depth) is the more semantically
+  # correct trigger for a task queue and is documented as the next step in
+  # docs/kubernetes.md rather than added here — it's a second operator
+  # + CRDs beyond what this phase is scoped to install.

@@ -1,3 +1,12 @@
+# CPU-only torch: without this, pip resolves sentence-transformers' torch
+# dependency to the default PyPI build, which is CUDA-enabled (multiple GB
+# of unused NVIDIA driver libraries — cuBLAS, cuDNN, etc. — bundled in for a
+# deployment that has no GPU and never will). This was the single largest
+# contributor to the Docker image size (found while validating the
+# Kubernetes deployment — see docs/kubernetes.md).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.2
+
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 sqlalchemy==2.0.30
@@ -9,10 +18,20 @@ httpx==0.27.0
 pydantic==2.7.1
 pydantic-settings==2.2.1
 python-dotenv==1.0.1
+pyyaml==6.0.1
 pytest==8.2.2
 pytest-asyncio==0.23.7
 pgvector==0.3.2
 sentence-transformers==3.0.1
-numpy>=1.26.0
+numpy>=1.26.0,<2
 groq>=0.9.0
 scikit-learn>=1.4.0
+
+# Observability
+prometheus-client>=0.20.0
+opentelemetry-api>=1.25.0
+opentelemetry-sdk>=1.25.0
+opentelemetry-exporter-otlp-proto-http>=1.25.0
+opentelemetry-instrumentation-fastapi>=0.46b0
+opentelemetry-instrumentation-sqlalchemy>=0.46b0
+opentelemetry-instrumentation-httpx>=0.46b0
