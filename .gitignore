@@ -20,3 +20,11 @@ celerybeat.pid
 .DS_Store
 dump.rdb
 .claude/settings.local.json
+
+# Terraform (.terraform.lock.hcl is intentionally NOT ignored — it pins
+# provider versions and should be committed, same as a package lock file)
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars
+terraform/*.tfplan

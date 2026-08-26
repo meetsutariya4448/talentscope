@@ -1,0 +1,15 @@
+# cp terraform.tfvars.example terraform.tfvars — never commit the real file
+# if you fill in groq_api_key/db_password with actual values.
+
+use_localstack = true
+aws_region     = "us-east-1"
+project        = "talentscope"
+environment    = "dev"
+
+# Leave false against LocalStack Community (see database.tf's header).
+enable_rds = false
+
+# Prefer TF_VAR_groq_api_key / TF_VAR_db_password env vars over filling
+# these in here.
+# groq_api_key = "gsk_..."
+# db_password  = "..."
