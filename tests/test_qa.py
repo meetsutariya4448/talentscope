@@ -4,9 +4,30 @@ Phase 3 tests: RAG Q&A endpoint.
 All Groq and Redis calls are mocked — no network required.
 """
 import json
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def test_redis_client_uses_bounded_socket_timeouts(monkeypatch):
+    """A Redis outage must not leave a Q&A request on library-default timeouts."""
+    import app.api.qa as qa_api
+
+    mock_client = MagicMock()
+    mock_redis = MagicMock()
+    mock_redis.Redis.from_url.return_value = mock_client
+    monkeypatch.setitem(sys.modules, "redis", mock_redis)
+    monkeypatch.setattr(qa_api, "_redis_client", None)
+
+    assert qa_api._get_redis() is mock_client
+    mock_redis.Redis.from_url.assert_called_once_with(
+        qa_api.settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=qa_api.REDIS_TIMEOUT_SECONDS,
+        socket_timeout=qa_api.REDIS_TIMEOUT_SECONDS,
+    )
+    mock_client.ping.assert_called_once_with()
 
 
 # ---------------------------------------------------------------------------

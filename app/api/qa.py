@@ -11,6 +11,7 @@ router = APIRouter()
 # Module-level Redis singleton — initialised lazily on first request.
 # Tests override _get_redis() via monkeypatch.
 _redis_client = None
+REDIS_TIMEOUT_SECONDS = 2
 
 
 def _get_redis():
@@ -18,7 +19,12 @@ def _get_redis():
     if _redis_client is None:
         try:
             import redis
-            client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+            client = redis.Redis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+                socket_timeout=REDIS_TIMEOUT_SECONDS,
+            )
             client.ping()
             _redis_client = client
         except Exception:
