@@ -10,6 +10,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+def test_qa_request_strips_whitespace_and_rejects_blank_questions():
+    from pydantic import ValidationError
+
+    from app.api.qa import QARequest
+
+    assert QARequest(question="  What jobs are open?  ").question == "What jobs are open?"
+    with pytest.raises(ValidationError):
+        QARequest(question="   ")
+
+
 def test_redis_client_uses_bounded_socket_timeouts(monkeypatch):
     """A Redis outage must not leave a Q&A request on library-default timeouts."""
     import app.api.qa as qa_api

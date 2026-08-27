@@ -33,6 +33,8 @@ def _get_redis():
 
 
 class QARequest(BaseModel):
+    model_config = {"str_strip_whitespace": True}
+
     question: str = Field(..., min_length=3, max_length=500)
     mode: Literal["fts", "vector", "hybrid"] = "hybrid"
 
