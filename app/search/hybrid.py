@@ -43,8 +43,14 @@ def reciprocal_rank_fusion(ranked_lists: list[list[int]], k: int = RRF_K) -> lis
     """
     scores: dict[int, float] = {}
     for ranked in ranked_lists:
-        for rank, doc_id in enumerate(ranked, start=1):
-            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank)
+        seen: set[int] = set()
+        unique_rank = 0
+        for doc_id in ranked:
+            if doc_id in seen:
+                continue
+            seen.add(doc_id)
+            unique_rank += 1
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + unique_rank)
     return sorted(scores, key=lambda d: scores[d], reverse=True)
 
 

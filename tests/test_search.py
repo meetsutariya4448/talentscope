@@ -54,6 +54,13 @@ def test_rrf_top_item_consistent():
     assert result[0] == winner
 
 
+def test_rrf_duplicate_within_source_does_not_inflate_score():
+    """One retrieval source cannot vote repeatedly for the same posting."""
+    result = reciprocal_rank_fusion([[1, 1, 2], [2]])
+
+    assert result == [2, 1]
+
+
 # ---------------------------------------------------------------------------
 # API mode parameter tests — purely structural, no real search results needed
 # ---------------------------------------------------------------------------
