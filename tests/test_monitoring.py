@@ -11,6 +11,22 @@ from sqlalchemy.orm import sessionmaker
 from app.models import TaskExecution
 
 
+def test_redis_client_bounds_connect_and_read_timeouts():
+    """A half-open Redis connection must not stall readiness or monitoring."""
+    import app.tasks.redis_utils as redis_utils
+
+    mock_client = MagicMock()
+    with patch.object(redis_utils.redis_lib.Redis, "from_url", return_value=mock_client) as from_url:
+        assert redis_utils.get_redis() is mock_client
+
+    from_url.assert_called_once_with(
+        redis_utils.settings.redis_url,
+        socket_connect_timeout=redis_utils.REDIS_TIMEOUT_SECONDS,
+        socket_timeout=redis_utils.REDIS_TIMEOUT_SECONDS,
+    )
+    mock_client.ping.assert_called_once_with()
+
+
 def _mock_sender(name: str):
     sender = MagicMock()
     sender.name = name
