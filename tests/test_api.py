@@ -1,6 +1,24 @@
 from app.models import Company, Posting, Skill, PostingSkill
 from datetime import datetime
 
+from app.api.postings import _row_to_dict
+
+
+def test_posting_response_preserves_zero_salary_bounds():
+    posting = Posting(
+        title="Volunteer Developer",
+        source="greenhouse",
+        source_id="zero-salary-test",
+        currency="USD",
+        salary_min=0,
+        salary_max=0,
+    )
+
+    result = _row_to_dict((posting, "Community Org"))
+
+    assert result["salary_min"] == 0.0
+    assert result["salary_max"] == 0.0
+
 
 def test_health(client):
     resp = client.get("/health")
