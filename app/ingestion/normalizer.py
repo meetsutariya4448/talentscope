@@ -1,6 +1,6 @@
-from datetime import datetime
-from typing import Optional
+import math
 import re
+from datetime import datetime
 
 
 def normalize_greenhouse(job: dict, company_id: int) -> dict:
@@ -120,14 +120,25 @@ def normalize_adzuna(job: dict) -> dict:
         "title": title,
         "location": location,
         "description": description,
-        "salary_min": float(salary_min) if salary_min else None,
-        "salary_max": float(salary_max) if salary_max else None,
+        "salary_min": _optional_float(salary_min),
+        "salary_max": _optional_float(salary_max),
         "currency": "USD",
         "source": "adzuna",
         "source_id": source_id,
         "url": url,
         "posted_at": posted_at,
     }
+
+
+def _optional_float(value) -> float | None:
+    """Parse optional numeric API fields without poisoning a whole batch."""
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _strip_html(html: str) -> str:

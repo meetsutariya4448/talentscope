@@ -80,6 +80,30 @@ def test_normalize_adzuna():
     assert result["salary_max"] == 120000.0
 
 
+def test_normalize_adzuna_tolerates_invalid_salary_values():
+    result = normalize_adzuna({
+        "id": "adzuna-invalid-salary",
+        "title": "Platform Engineer",
+        "salary_min": "not disclosed",
+        "salary_max": "NaN",
+    })
+
+    assert result["salary_min"] is None
+    assert result["salary_max"] is None
+
+
+def test_normalize_adzuna_preserves_zero_salary_bounds():
+    result = normalize_adzuna({
+        "id": "adzuna-zero-salary",
+        "title": "Volunteer Engineer",
+        "salary_min": 0,
+        "salary_max": "0",
+    })
+
+    assert result["salary_min"] == 0.0
+    assert result["salary_max"] == 0.0
+
+
 def test_fetch_greenhouse_task_eager(db):
     """Test greenhouse task with mocked HTTP call and mocked DB session."""
     from app.models import Company
