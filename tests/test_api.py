@@ -65,6 +65,12 @@ def test_skill_demand_endpoint(client):
     assert "window" in data
 
 
+def test_skill_demand_rejects_unknown_window(client):
+    resp = client.get("/analytics/skill-demand?window=fortnight")
+
+    assert resp.status_code == 422
+
+
 def test_salary_trends_endpoint(client):
     resp = client.get("/analytics/salary-trends")
     assert resp.status_code == 200

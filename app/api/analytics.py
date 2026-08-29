@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from app.database import get_db
 from app.models import Posting, Skill, PostingSkill, SkillCluster
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 import json
 
 router = APIRouter()
@@ -12,7 +12,10 @@ router = APIRouter()
 
 @router.get("/skill-demand")
 def skill_demand(
-    window: str = Query(default="30d", description="Time window: 7d, 30d, 90d, all"),
+    window: Literal["7d", "30d", "90d", "180d", "365d", "all"] = Query(
+        default="30d",
+        description="Time window: 7d, 30d, 90d, 180d, 365d, all",
+    ),
     limit: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
@@ -147,9 +150,11 @@ def trigger_clustering(
     return result
 
 
-def _parse_window(window: str) -> Optional[datetime]:
+def _parse_window(
+    window: Literal["7d", "30d", "90d", "180d", "365d", "all"],
+) -> Optional[datetime]:
     if window == "all":
         return None
     mapping = {"7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
-    days = mapping.get(window, 30)
+    days = mapping[window]
     return datetime.utcnow() - timedelta(days=days)
