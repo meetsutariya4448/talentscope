@@ -178,17 +178,32 @@ def answer_question(
     context  = _build_context(postings)
     user_msg = f"Context (job postings):\n{context}\n\nQuestion: {question}"
 
-    client     = _Groq(api_key=groq_api_key)
-    completion = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_msg},
-        ],
-        temperature=0.2,
-        max_tokens=MAX_TOKENS,
-    )
-    answer     = completion.choices[0].message.content.strip()
+    try:
+        client = _Groq(api_key=groq_api_key)
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_msg},
+            ],
+            temperature=0.2,
+            max_tokens=MAX_TOKENS,
+        )
+        answer = completion.choices[0].message.content.strip()
+    except Exception:
+        # Authentication, rate-limit, timeout, and malformed provider
+        # responses are upstream availability failures.  Return the same
+        # structured error contract used by other Q&A guards so the API can
+        # respond with 503 instead of leaking an uncaught 500.
+        logger.exception("Groq answer generation failed")
+        return {
+            "answer": None,
+            "sources": postings,
+            "cached": False,
+            "error": "Q&A provider unavailable",
+            "latency_ms": round((time.monotonic() - t0) * 1000),
+        }
+
     cited_ids  = _parse_cited_ids(answer, postings)
 
     payload = {

@@ -88,6 +88,25 @@ def test_answer_question_groq_called(db):
     MockGroq.assert_called_once_with(api_key="test-key-abc")
 
 
+def test_answer_question_provider_failure_returns_service_error(db):
+    with patch("app.search.rag._Groq", side_effect=ConnectionError("provider timeout")):
+        from app.search.rag import answer_question
+
+        result = answer_question(
+            "What Python jobs are open?",
+            db=db,
+            mode="fts",
+            redis_client=None,
+            groq_api_key="test-key-abc",
+        )
+
+    assert result["answer"] is None
+    assert result["error"] == "Q&A provider unavailable"
+    assert result["cached"] is False
+    assert "sources" in result
+    assert "latency_ms" in result
+
+
 def test_answer_question_cache_hit(db):
     """A Redis hit returns the cached payload without calling Groq."""
     cached_body = {"answer": "Cached market answer.", "sources": [], "model": "cached-model"}
