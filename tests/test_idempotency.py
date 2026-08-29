@@ -7,6 +7,7 @@ and must leave the DB in the same state a single successful run would.
 """
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
@@ -200,6 +201,26 @@ def test_embed_posting_clears_pending_marker_on_completion(db):
         embedding_mod._clear_pending(123)
 
     mock_redis.delete.assert_called_once_with(f"{embedding_mod.PENDING_NS}:123")
+
+
+def test_embed_dispatch_failure_releases_pending_claim():
+    import app.tasks.embedding as embedding_mod
+
+    mock_db = MagicMock()
+    mock_db.execute.return_value.scalars.return_value.all.return_value = [321]
+    mock_redis = MagicMock()
+    mock_redis.set.return_value = True
+
+    with patch.object(embedding_mod, "SessionLocal", return_value=mock_db), \
+         patch.object(embedding_mod, "_get_redis", return_value=mock_redis), \
+         patch.object(embedding_mod, "embed_posting") as mock_embed_posting:
+        mock_embed_posting.delay.side_effect = ConnectionError("broker unavailable")
+
+        with pytest.raises(ConnectionError, match="broker unavailable"):
+            embedding_mod.embed_missing_postings()
+
+    mock_redis.delete.assert_called_once_with(f"{embedding_mod.PENDING_NS}:321")
+    mock_db.close.assert_called_once_with()
 
 
 # ---------------------------------------------------------------------------

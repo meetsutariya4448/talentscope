@@ -20,14 +20,18 @@ PENDING_NS = "talentscope:embed:pending"
 PENDING_TTL = 3600
 
 
+def _release_pending(redis_client, posting_id: int) -> None:
+    try:
+        redis_client.delete(f"{PENDING_NS}:{posting_id}")
+    except Exception:
+        logger.warning("Failed to clear pending-embed marker for posting %s", posting_id)
+
+
 def _clear_pending(posting_id: int) -> None:
     rc = _get_redis()
     if rc is None:
         return
-    try:
-        rc.delete(f"{PENDING_NS}:{posting_id}")
-    except Exception:
-        logger.warning("Failed to clear pending-embed marker for posting %s", posting_id)
+    _release_pending(rc, posting_id)
 
 
 def _build_text(posting: Posting) -> str:
@@ -105,7 +109,15 @@ def embed_missing_postings(self, batch_size: int = 200):
                 if not claimed:
                     skipped_in_flight += 1
                     continue
-            embed_posting.delay(pid)
+            try:
+                embed_posting.delay(pid)
+            except Exception:
+                # The task was never accepted by the broker, so release the
+                # claim immediately.  Leaving it behind would make the retry
+                # skip this posting until the one-hour TTL expires.
+                if rc is not None:
+                    _release_pending(rc, pid)
+                raise
             dispatched += 1
 
         logger.info(
