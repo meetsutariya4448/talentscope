@@ -43,6 +43,14 @@ def search_postings(
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
+    # Treat surrounding whitespace consistently across retrieval modes.  In
+    # particular, a whitespace-only semantic query must not be sent to the
+    # embedding model; it has no searchable content and should use the same
+    # filtered FTS fallback as an omitted query.
+    q = q.strip()
+    skill = skill.strip()
+    location = location.strip()
+
     # --- FTS mode (original behaviour, unchanged) ---
     if mode == "fts" or (not q and mode in ("vector", "hybrid")):
         return _fts_results(db, q, skill, location, page, page_size)

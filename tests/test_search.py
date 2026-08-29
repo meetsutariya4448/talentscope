@@ -107,6 +107,19 @@ def test_vector_mode_no_query_falls_back(client):
     assert resp.json()["mode"] == "fts"
 
 
+def test_vector_mode_whitespace_query_falls_back(client, monkeypatch):
+    """Whitespace-only input has no semantic content and must not be encoded."""
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("vector search must not run for a blank query")
+
+    monkeypatch.setattr("app.api.postings.vector_search", fail_if_called)
+
+    resp = client.get("/postings/?mode=vector&q=%20%20%20")
+
+    assert resp.status_code == 200
+    assert resp.json()["mode"] == "fts"
+
+
 # ---------------------------------------------------------------------------
 # Integration: hybrid returns same relevant postings as FTS, plus any extras
 # from vector recall
