@@ -1,6 +1,7 @@
 import math
 import re
 from datetime import datetime
+from html import unescape
 
 
 def normalize_greenhouse(job: dict, company_id: int) -> dict:
@@ -145,5 +146,6 @@ def _strip_html(html: str) -> str:
     if not html:
         return ""
     clean = re.sub(r"<[^>]+>", " ", html)
+    clean = unescape(clean)
     clean = re.sub(r"\s+", " ", clean).strip()
     return clean

@@ -29,6 +29,12 @@ def test_strip_html():
     assert _strip_html(html) == "Hello world"
 
 
+def test_strip_html_decodes_entities_and_normalizes_nonbreaking_spaces():
+    html = "<p>R&amp;D&nbsp;&lt;Platform&gt; &#39;team&#39;</p>"
+
+    assert _strip_html(html) == "R&D <Platform> 'team'"
+
+
 def test_normalize_greenhouse():
     job = {
         "id": 12345,
