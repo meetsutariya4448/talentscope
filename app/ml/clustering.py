@@ -200,6 +200,8 @@ def run_clustering(db, k: int | None = None) -> dict:
     n = len(rows)
     if n < max(10, _K_MIN * 2):
         return {"error": f"Not enough embedded postings to cluster (have {n}, need ≥ {max(10, _K_MIN * 2)})"}
+    if k is not None and (isinstance(k, bool) or not isinstance(k, int) or k < 2 or k >= n):
+        return {"error": f"k must be an integer between 2 and {n - 1} (received {k!r})"}
 
     posting_ids = [r[0] for r in rows]
     raw_vecs    = np.array([list(r[1]) for r in rows], dtype=np.float32)

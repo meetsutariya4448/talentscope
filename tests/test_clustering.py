@@ -160,6 +160,25 @@ def test_clustering_not_enough_data():
     assert "error" in result
 
 
+@pytest.mark.parametrize("invalid_k", [1, 10, True])
+def test_clustering_rejects_invalid_explicit_k(invalid_k):
+    from unittest.mock import MagicMock
+    from app.ml.clustering import run_clustering
+
+    mock_result = MagicMock()
+    mock_result.all.return_value = [
+        (posting_id, [1.0] + [0.0] * 383)
+        for posting_id in range(1, 11)
+    ]
+    mock_db = MagicMock()
+    mock_db.execute.return_value = mock_result
+
+    result = run_clustering(mock_db, k=invalid_k)
+
+    assert "error" in result
+    assert "between 2 and 9" in result["error"]
+
+
 def test_embedding_fetch_is_deterministic(db):
     """
     Embedding fetch must return posting IDs in the same order on repeated
