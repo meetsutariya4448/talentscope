@@ -73,8 +73,8 @@ def salary_trends(
         "trends": [
             {
                 "month": r[0].isoformat() if r[0] else None,
-                "avg_salary_min": round(float(r[1]), 2) if r[1] else None,
-                "avg_salary_max": round(float(r[2]), 2) if r[2] else None,
+                "avg_salary_min": round(float(r[1]), 2) if r[1] is not None else None,
+                "avg_salary_max": round(float(r[2]), 2) if r[2] is not None else None,
                 "count": r[3],
             }
             for r in results
@@ -114,12 +114,16 @@ def get_clusters(db: Session = Depends(get_db)):
         .order_by(SkillCluster.size.desc())
     ).scalars().all()
 
-    sil = float(clusters[0].silhouette) if clusters and clusters[0].silhouette else None
+    sil = (
+        float(clusters[0].silhouette)
+        if clusters and clusters[0].silhouette is not None
+        else None
+    )
 
     return {
         "run_at":     latest_run_at.isoformat(),
         "k":          len(clusters),
-        "silhouette": round(sil, 4) if sil else None,
+        "silhouette": round(sil, 4) if sil is not None else None,
         "clusters": [
             {
                 "cluster_id": c.cluster_id,

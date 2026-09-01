@@ -2,6 +2,8 @@ from app.models import Company, Posting, Skill, PostingSkill
 from datetime import datetime
 
 from app.api.postings import _row_to_dict
+from decimal import Decimal
+from unittest.mock import MagicMock
 
 
 def test_posting_response_preserves_zero_salary_bounds():
@@ -18,6 +20,43 @@ def test_posting_response_preserves_zero_salary_bounds():
 
     assert result["salary_min"] == 0.0
     assert result["salary_max"] == 0.0
+
+
+def test_salary_trends_preserves_zero_averages():
+    from app.api.analytics import salary_trends
+
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [
+        (datetime(2026, 1, 1), Decimal("0"), Decimal("0"), 1),
+    ]
+
+    result = salary_trends(role="", location="", db=db)
+
+    assert result["trends"][0]["avg_salary_min"] == 0.0
+    assert result["trends"][0]["avg_salary_max"] == 0.0
+
+
+def test_cluster_summary_preserves_zero_silhouette():
+    from app.api.analytics import get_clusters
+
+    run_at = datetime(2026, 1, 1)
+    latest_result = MagicMock()
+    latest_result.scalar.return_value = run_at
+    cluster = MagicMock(
+        cluster_id=0,
+        label="Uncategorized",
+        size=4,
+        top_skills="[]",
+        silhouette=Decimal("0"),
+    )
+    clusters_result = MagicMock()
+    clusters_result.scalars.return_value.all.return_value = [cluster]
+    db = MagicMock()
+    db.execute.side_effect = [latest_result, clusters_result]
+
+    result = get_clusters(db=db)
+
+    assert result["silhouette"] == 0.0
 
 
 def test_health(client):
