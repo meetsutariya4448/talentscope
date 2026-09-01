@@ -79,7 +79,7 @@ def _build_context(postings: list[dict]) -> str:
         ]
         if p.get("location"):
             parts.append(f"LOCATION: {p['location']}")
-        if p.get("salary_min") and p.get("salary_max"):
+        if p.get("salary_min") is not None and p.get("salary_max") is not None:
             parts.append(f"SALARY: ${int(p['salary_min']):,}–${int(p['salary_max']):,}")
         lines.append(" | ".join(parts))
     return "\n".join(lines)
@@ -92,8 +92,8 @@ def _row_to_dict(row) -> dict:
         "title":        r["title"],
         "company_name": r.get("company_name"),
         "location":     r.get("location"),
-        "salary_min":   float(r["salary_min"]) if r.get("salary_min") else None,
-        "salary_max":   float(r["salary_max"]) if r.get("salary_max") else None,
+        "salary_min":   float(r["salary_min"]) if r.get("salary_min") is not None else None,
+        "salary_max":   float(r["salary_max"]) if r.get("salary_max") is not None else None,
         "source":       r["source"],
         "url":          r.get("url"),
     }

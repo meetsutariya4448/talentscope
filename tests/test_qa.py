@@ -347,3 +347,25 @@ def test_parse_cited_ids_unit():
 
     # No citation markers
     assert _parse_cited_ids("No citations here.", postings) == []
+
+
+def test_rag_context_preserves_zero_salary_bounds():
+    from app.search.rag import _build_context, _row_to_dict
+
+    row = MagicMock()
+    row._mapping = {
+        "id": 1,
+        "title": "Volunteer Engineer",
+        "company_name": "Community Org",
+        "location": "Remote",
+        "salary_min": 0,
+        "salary_max": 0,
+        "source": "greenhouse",
+        "url": "https://example.com/job/1",
+    }
+
+    posting = _row_to_dict(row)
+
+    assert posting["salary_min"] == 0.0
+    assert posting["salary_max"] == 0.0
+    assert "SALARY: $0–$0" in _build_context([posting])
