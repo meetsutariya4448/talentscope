@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models import MonitoredCompany
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "target_companies.yml"
+SUPPORTED_SOURCES = {"greenhouse", "lever", "ashby"}
 
 
 def load_target_companies(path: Path = CONFIG_PATH) -> dict[str, list[dict]]:
@@ -16,9 +17,37 @@ def load_target_companies(path: Path = CONFIG_PATH) -> dict[str, list[dict]]:
     file toward the project's 200-400 company target by adding entries here —
     verify each token actually returns postings before adding it; a bad token
     just shows up as a permanent 'http_error' and pollutes the health check."""
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-    return {source: (entries or []) for source, entries in data.items()}
+    if not isinstance(data, dict):
+        raise ValueError("target company config must be a mapping of sources to entries")
+
+    validated: dict[str, list[dict]] = {}
+    for source, entries in data.items():
+        if source not in SUPPORTED_SOURCES:
+            raise ValueError(f"unsupported target company source: {source}")
+        if entries is None:
+            entries = []
+        if not isinstance(entries, list):
+            raise ValueError(f"target companies for {source} must be a list")
+
+        seen_tokens: set[str] = set()
+        validated_entries: list[dict] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError(f"target company entry for {source} must be a mapping")
+            token = entry.get("token")
+            if not isinstance(token, str) or not token.strip() or token != token.strip():
+                raise ValueError(f"target company token for {source} must be a trimmed string")
+            if token in seen_tokens:
+                raise ValueError(f"duplicate target company token for {source}: {token}")
+            name = entry.get("name")
+            if name is not None and (not isinstance(name, str) or not name.strip()):
+                raise ValueError(f"target company name for {source}/{token} must be nonempty")
+            seen_tokens.add(token)
+            validated_entries.append(entry)
+        validated[source] = validated_entries
+    return validated
 
 
 def sync_monitored_companies(db: Session, target_companies: dict[str, list[dict]]) -> None:
