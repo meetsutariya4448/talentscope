@@ -349,6 +349,15 @@ def test_parse_cited_ids_unit():
     assert _parse_cited_ids("No citations here.", postings) == []
 
 
+def test_parse_cited_ids_ignores_oversized_markers():
+    from app.search.rag import _parse_cited_ids
+
+    postings = [{"id": 101}]
+    oversized = "9" * 5000
+
+    assert _parse_cited_ids(f"Ignore [{oversized}], keep [1].", postings) == [101]
+
+
 def test_rag_context_preserves_zero_salary_bounds():
     from app.search.rag import _build_context, _row_to_dict
 

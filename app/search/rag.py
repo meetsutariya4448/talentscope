@@ -53,7 +53,10 @@ def _parse_cited_ids(answer: str, postings: list[dict]) -> list[int]:
     import re
     seen: list[int] = []
     seen_set: set[int] = set()
-    for m in re.finditer(r'\[(\d+)\]', answer):
+    # Bound the marker width before converting to int. Untrusted model output
+    # can otherwise exceed Python's integer-string conversion limit and abort
+    # an otherwise valid Q&A response.
+    for m in re.finditer(r'\[(\d{1,10})\]', answer):
         n = int(m.group(1))
         if 1 <= n <= len(postings):
             pid = postings[n - 1]["id"]
