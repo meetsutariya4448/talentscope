@@ -195,13 +195,17 @@ def test_get_worker_heartbeats_reads_back_live_keys():
     import app.tasks.monitoring as monitoring_mod
 
     mock_redis = MagicMock()
-    mock_redis.keys.return_value = [f"{monitoring_mod.HEARTBEAT_NS}:worker1@host".encode()]
+    mock_redis.scan_iter.return_value = [f"{monitoring_mod.HEARTBEAT_NS}:worker1@host".encode()]
     mock_redis.get.return_value = b"2026-08-26T00:00:00+00:00"
 
     with patch.object(monitoring_mod, "_get_redis", return_value=mock_redis):
         heartbeats = monitoring_mod.get_worker_heartbeats()
 
     assert heartbeats == {"worker1@host": "2026-08-26T00:00:00+00:00"}
+    mock_redis.scan_iter.assert_called_once_with(
+        match=f"{monitoring_mod.HEARTBEAT_NS}:*", count=100,
+    )
+    mock_redis.keys.assert_not_called()
 
 
 def test_get_worker_heartbeats_empty_when_redis_unavailable():

@@ -226,7 +226,7 @@ def get_worker_heartbeats() -> dict[str, str]:
     if rc is None:
         return {}
     result: dict[str, str] = {}
-    for key in rc.keys(f"{HEARTBEAT_NS}:*"):
+    for key in rc.scan_iter(match=f"{HEARTBEAT_NS}:*", count=100):
         key_str = key.decode() if isinstance(key, bytes) else key
         hostname = key_str[len(f"{HEARTBEAT_NS}:"):]
         val = rc.get(key_str)
