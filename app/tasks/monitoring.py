@@ -122,6 +122,11 @@ def _pop_duration(task_id: str | None) -> float | None:
 @task_postrun.connect
 def _on_task_postrun(sender=None, task_id=None, state=None, **_):
     task_name = sender.name if sender is not None else "unknown"
+    # task_retry already records this intermediate state. Celery reuses the
+    # task id for the next attempt, so retain its original start time and wait
+    # for a terminal postrun/failure signal before finishing the execution.
+    if state == "RETRY":
+        return
     # task_failure fires separately (and first) for exceptions and records
     # its own outcome — only report success here to avoid double-counting.
     if state != "FAILURE":

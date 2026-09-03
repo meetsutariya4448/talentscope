@@ -134,6 +134,31 @@ def test_postrun_does_not_overwrite_a_failure_recorded_by_task_failure(db):
     assert row.error == "boom"
 
 
+def test_retry_postrun_does_not_double_count_or_discard_start_time():
+    import app.tasks.monitoring as monitoring_mod
+
+    task_id = "retry-task"
+    monitoring_mod._task_start_times[task_id] = 123.0
+    sender = _mock_sender("app.tasks.ingestion.fetch_greenhouse_task")
+
+    try:
+        with (
+            patch.object(monitoring_mod, "record_task_outcome") as record,
+            patch.object(monitoring_mod, "_update_task_execution") as update,
+        ):
+            monitoring_mod._on_task_postrun(
+                sender=sender,
+                task_id=task_id,
+                state="RETRY",
+            )
+
+        record.assert_not_called()
+        update.assert_not_called()
+        assert monitoring_mod._task_start_times[task_id] == 123.0
+    finally:
+        monitoring_mod._task_start_times.pop(task_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Worker heartbeats
 # ---------------------------------------------------------------------------
