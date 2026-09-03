@@ -110,6 +110,17 @@ def test_normalize_adzuna_preserves_zero_salary_bounds():
     assert result["salary_max"] == 0.0
 
 
+def test_normalizers_tolerate_malformed_nested_provider_metadata():
+    greenhouse = normalize_greenhouse({"location": "Remote"}, company_id=1)
+    lever = normalize_lever({"categories": ["Remote"]}, company_id=2)
+    adzuna = normalize_adzuna({"location": "Remote", "company": ["Acme"]})
+
+    assert greenhouse["location"] == ""
+    assert lever["location"] == ""
+    assert adzuna["location"] == ""
+    assert adzuna["company_name"] == ""
+
+
 def test_fetch_greenhouse_task_eager(db):
     """Test greenhouse task with mocked HTTP call and mocked DB session."""
     from app.models import Company
