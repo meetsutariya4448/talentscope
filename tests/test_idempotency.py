@@ -147,6 +147,21 @@ def test_search_vector_recomputes_on_description_change(db):
 # embed_missing_postings: overlapping backfill firings must not double-dispatch
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("batch_size", [0, -1, 1001, True, "200"])
+def test_embed_missing_postings_rejects_invalid_batch_sizes(batch_size):
+    import app.tasks.embedding as embedding_mod
+
+    with patch.object(embedding_mod, "SessionLocal") as session_local:
+        result = embedding_mod.embed_missing_postings(batch_size=batch_size)
+
+    assert result == {
+        "dispatched": 0,
+        "skipped_in_flight": 0,
+        "error": "batch_size must be an integer between 1 and 1000",
+    }
+    session_local.assert_not_called()
+
+
 def test_embed_missing_postings_skips_ids_already_in_flight(db):
     company = _company(db, "idempo-5")
     posting = Posting(

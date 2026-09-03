@@ -18,6 +18,7 @@ _get_model = get_model
 # within an hour it's presumed lost, and the id becomes eligible again.
 PENDING_NS = "talentscope:embed:pending"
 PENDING_TTL = 3600
+MAX_BACKFILL_BATCH_SIZE = 1000
 
 
 def _release_pending(redis_client, posting_id: int) -> None:
@@ -87,6 +88,18 @@ def embed_missing_postings(self, batch_size: int = 200):
     Backfill: find postings with no embedding and dispatch embed_posting for each.
     Runs every hour via Celery Beat so newly ingested postings are never stuck.
     """
+    if (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or not 1 <= batch_size <= MAX_BACKFILL_BATCH_SIZE
+    ):
+        message = (
+            f"batch_size must be an integer between 1 and "
+            f"{MAX_BACKFILL_BATCH_SIZE}"
+        )
+        logger.warning("embed_missing_postings: %s", message)
+        return {"dispatched": 0, "skipped_in_flight": 0, "error": message}
+
     db = SessionLocal()
     try:
         ids = db.execute(
