@@ -107,7 +107,7 @@ def test_answer_question_provider_failure_returns_service_error(db):
     assert "latency_ms" in result
 
 
-def test_answer_question_cache_hit(db):
+def test_answer_question_cache_hit():
     """A Redis hit returns the cached payload without calling Groq."""
     cached_body = {"answer": "Cached market answer.", "sources": [], "model": "cached-model"}
     mock_redis = MagicMock()
@@ -117,7 +117,7 @@ def test_answer_question_cache_hit(db):
         from app.search.rag import answer_question
         result = answer_question(
             "What jobs exist?",
-            db=db,
+            db=MagicMock(),
             mode="fts",
             redis_client=mock_redis,
             groq_api_key="test-key",
@@ -126,6 +126,35 @@ def test_answer_question_cache_hit(db):
     assert result["answer"] == "Cached market answer."
     assert result["cached"] is True
     MockGroq.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "cached_body",
+    [
+        [],
+        {},
+        {"answer": "Cached answer", "sources": "not-a-list"},
+        {"answer": "Cached answer", "sources": [{"title": "Missing id"}]},
+    ],
+)
+def test_answer_question_ignores_malformed_cache_payloads(cached_body):
+    from app.search.rag import answer_question
+
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = json.dumps(cached_body)
+
+    with patch("app.search.hybrid.fts_search", return_value=[]):
+        result = answer_question(
+            "What jobs exist?",
+            db=MagicMock(),
+            mode="fts",
+            redis_client=mock_redis,
+            groq_api_key="",
+        )
+
+    assert result["answer"] is None
+    assert result["cached"] is False
+    assert result["error"] == "GROQ_API_KEY not configured"
 
 
 def test_answer_question_cache_miss_then_write(db):

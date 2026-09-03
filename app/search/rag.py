@@ -66,6 +66,28 @@ def _parse_cited_ids(answer: str, postings: list[dict]) -> list[int]:
     return seen
 
 
+def _valid_cached_payload(payload) -> bool:
+    """Validate Redis data before returning it through the API contract."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("answer"), str):
+        return False
+    sources = payload.get("sources")
+    if not isinstance(sources, list) or not all(
+        isinstance(source, dict)
+        and isinstance(source.get("id"), int)
+        and not isinstance(source.get("id"), bool)
+        for source in sources
+    ):
+        return False
+    cited_ids = payload.get("cited_ids")
+    if cited_ids is not None and (
+        not isinstance(cited_ids, list)
+        or not all(isinstance(pid, int) and not isinstance(pid, bool) for pid in cited_ids)
+    ):
+        return False
+    model = payload.get("model")
+    return model is None or isinstance(model, str)
+
+
 def _cache_key(question: str, mode: str) -> str:
     digest = hashlib.sha256(f"{question}|{mode}|{N_SOURCES}".encode()).hexdigest()
     return f"{CACHE_PREFIX}{digest}"
@@ -128,14 +150,17 @@ def answer_question(
             raw = redis_client.get(cache_key)
             if raw:
                 payload = json.loads(raw)
-                # cited_ids may be absent in entries written before this field was added
-                if "cited_ids" not in payload:
-                    payload["cited_ids"] = _parse_cited_ids(
-                        payload.get("answer") or "", payload.get("sources") or []
-                    )
-                payload["cached"] = True
-                payload["latency_ms"] = round((time.monotonic() - t0) * 1000)
-                return payload
+                if not _valid_cached_payload(payload):
+                    logger.warning("Ignoring malformed Redis Q&A cache entry")
+                else:
+                    # cited_ids may be absent in entries written before this field was added
+                    if "cited_ids" not in payload:
+                        payload["cited_ids"] = _parse_cited_ids(
+                            payload["answer"], payload["sources"]
+                        )
+                    payload["cached"] = True
+                    payload["latency_ms"] = round((time.monotonic() - t0) * 1000)
+                    return payload
         except Exception:
             logger.warning("Redis read failed; proceeding without cache")
 
