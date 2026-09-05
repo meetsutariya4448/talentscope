@@ -199,7 +199,8 @@ def _refresh_ingestion_lag() -> None:
                 continue
             if last_run_at.tzinfo is None:
                 last_run_at = last_run_at.replace(tzinfo=timezone.utc)
-            INGESTION_LAG_SECONDS.labels(source=source).set((now - last_run_at).total_seconds())
+            lag_seconds = max(0.0, (now - last_run_at).total_seconds())
+            INGESTION_LAG_SECONDS.labels(source=source).set(lag_seconds)
     except Exception:
         logger.warning("Failed to refresh ingestion_lag_seconds", exc_info=True)
     finally:

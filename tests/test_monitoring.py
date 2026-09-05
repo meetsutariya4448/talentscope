@@ -4,6 +4,7 @@ heartbeats (app/tasks/monitoring.py). These are the pieces that make task
 lifecycle observable beyond Celery's own ephemeral, TTL'd Redis result
 backend — a durable record of what ran, retried, and finished.
 """
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
@@ -36,6 +37,26 @@ def test_http_metrics_record_unhandled_exceptions_as_500():
     duration_labels.return_value.observe.assert_called_once()
     total_labels.assert_called_once_with(**labels)
     total_labels.return_value.inc.assert_called_once_with()
+
+
+def test_ingestion_lag_never_reports_negative_seconds():
+    import app.database as database
+    import app.observability as observability
+
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [
+        ("greenhouse", datetime(2100, 1, 1, tzinfo=timezone.utc)),
+    ]
+
+    with (
+        patch.object(database, "SessionLocal", return_value=db),
+        patch.object(observability.INGESTION_LAG_SECONDS, "labels") as labels,
+    ):
+        observability._refresh_ingestion_lag()
+
+    labels.assert_called_once_with(source="greenhouse")
+    labels.return_value.set.assert_called_once_with(0.0)
+    db.close.assert_called_once_with()
 
 
 def test_redis_client_bounds_connect_and_read_timeouts():
