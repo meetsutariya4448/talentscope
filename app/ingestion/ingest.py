@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.ingestion.deduplicator import find_fuzzy_duplicate
@@ -17,6 +17,36 @@ class IngestResult:
     is_new: bool
     skipped: bool  # True only for a cross-source fuzzy duplicate — nothing written
     content_changed: bool = False  # existing posting whose title/description drifted — needs re-embedding
+
+
+def _sync_posting_skills(
+    db: Session,
+    posting_id: int,
+    title: str,
+    description: str | None,
+    skill_map: dict[str, int],
+) -> None:
+    desired_ids = {
+        skill_map[name]
+        for name in extract_skills(f"{title} {description or ''}")
+        if name in skill_map
+    }
+    existing_ids = set(
+        db.execute(
+            select(PostingSkill.skill_id).where(PostingSkill.posting_id == posting_id)
+        ).scalars()
+    )
+
+    stale_ids = existing_ids - desired_ids
+    if stale_ids:
+        db.execute(
+            delete(PostingSkill).where(
+                PostingSkill.posting_id == posting_id,
+                PostingSkill.skill_id.in_(stale_ids),
+            )
+        )
+    for skill_id in desired_ids - existing_ids:
+        db.add(PostingSkill(posting_id=posting_id, skill_id=skill_id))
 
 
 def ingest_posting(
@@ -68,6 +98,14 @@ def ingest_posting(
         existing.url = data.get("url")
         existing.posted_at = data.get("posted_at") or existing.posted_at
         apply_panel_fields_on_update(db, existing, data.get("description") or "")
+        if content_changed:
+            _sync_posting_skills(
+                db,
+                existing.id,
+                existing.title,
+                existing.description,
+                skill_map,
+            )
         return IngestResult(existing.id, is_new=False, skipped=False, content_changed=content_changed)
 
     if find_fuzzy_duplicate(db, data.get("company_id"), data["title"], data.get("location", "")):
@@ -93,10 +131,13 @@ def ingest_posting(
     monitored = get_monitored_company(db, source, company_token)
     apply_panel_fields_on_insert(db, posting, data.get("description") or "", monitored)
 
-    desc = data.get("title", "") + " " + (data.get("description") or "")
-    for skill_name in extract_skills(desc):
-        if skill_name in skill_map:
-            db.add(PostingSkill(posting_id=posting.id, skill_id=skill_map[skill_name]))
+    _sync_posting_skills(
+        db,
+        posting.id,
+        data.get("title", ""),
+        data.get("description"),
+        skill_map,
+    )
 
     # search_vector is a Postgres GENERATED column (see migration 0005) —
     # Postgres recomputes it on every insert/update automatically, including

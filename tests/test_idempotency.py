@@ -143,6 +143,40 @@ def test_search_vector_recomputes_on_description_change(db):
     assert matches_old is False
 
 
+def test_skill_links_follow_updated_posting_content(db):
+    company = _company(db, "idempo-skills")
+    python = Skill(name="Python", category="language")
+    rust = Skill(name="Rust", category="language")
+    db.add_all([python, rust])
+    db.flush()
+    skill_map = {"Python": python.id, "Rust": rust.id}
+    data = {
+        "company_id": company.id,
+        "title": "Python Engineer",
+        "location": "Remote",
+        "description": "Build services with Python",
+        "source": "greenhouse",
+        "source_id": "drifting-skills",
+        "currency": "USD",
+    }
+    result = ingest_posting(db, data, skill_map, company_token="idempo-skills")
+    db.flush()
+
+    updated = {
+        **data,
+        "title": "Rust Engineer",
+        "description": "Build services with Rust",
+    }
+    ingest_posting(db, updated, skill_map, company_token="idempo-skills")
+    db.flush()
+
+    linked_ids = {
+        row.skill_id
+        for row in db.query(PostingSkill).filter_by(posting_id=result.posting_id).all()
+    }
+    assert linked_ids == {rust.id}
+
+
 # ---------------------------------------------------------------------------
 # embed_missing_postings: overlapping backfill firings must not double-dispatch
 # ---------------------------------------------------------------------------
