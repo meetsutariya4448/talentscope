@@ -4,6 +4,15 @@ from pydantic import ValidationError
 from app.config import Settings
 
 
+def test_settings_loads_default_env_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DB_POOL_SIZE=7\n", encoding="utf-8")
+
+    configured = Settings()
+
+    assert configured.db_pool_size == 7
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

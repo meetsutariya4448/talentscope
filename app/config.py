@@ -1,8 +1,10 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+
     database_url: str = "postgresql://talentscope:talentscope@localhost:5432/talentscope"
     redis_url: str = "redis://localhost:6379/0"
     adzuna_app_id: str = ""
@@ -30,9 +32,5 @@ class Settings(BaseSettings):
     # closer-to-exact recall on the RRF candidate pool. Tune via
     # scripts/db_engineering_report.py's ef_search sweep before changing.
     vector_ef_search: int | None = Field(default=None, ge=1)
-
-    class Config:
-        env_file = ".env"
-
 
 settings = Settings()
