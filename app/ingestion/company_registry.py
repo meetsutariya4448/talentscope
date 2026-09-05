@@ -78,9 +78,11 @@ def sync_monitored_companies(db: Session, target_companies: dict[str, list[dict]
                         is_active=True,
                     )
                 )
-            elif not monitored.is_active:
-                monitored.is_active = True
-                monitored.monitoring_stopped_at = None
+            else:
+                monitored.display_name = entry.get("name", token)
+                if not monitored.is_active:
+                    monitored.is_active = True
+                    monitored.monitoring_stopped_at = None
 
     for monitored in db.query(MonitoredCompany).filter_by(is_active=True).all():
         if (monitored.source, monitored.company_token) not in seen:

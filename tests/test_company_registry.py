@@ -1,8 +1,9 @@
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from app.ingestion.company_registry import load_target_companies
+from app.ingestion.company_registry import load_target_companies, sync_monitored_companies
 
 
 def _write_config(tmp_path: Path, contents: str) -> Path:
@@ -38,3 +39,24 @@ def test_load_target_companies_accepts_valid_entries(tmp_path):
 def test_load_target_companies_rejects_unsafe_config(contents, tmp_path):
     with pytest.raises(ValueError):
         load_target_companies(_write_config(tmp_path, contents))
+
+
+def test_sync_updates_existing_company_display_name():
+    monitored = MagicMock(
+        source="greenhouse",
+        company_token="acme",
+        display_name="Old Acme",
+        is_active=True,
+    )
+    db = MagicMock()
+    query = db.query.return_value
+    query.filter_by.return_value.first.return_value = monitored
+    query.filter_by.return_value.all.return_value = [monitored]
+
+    sync_monitored_companies(
+        db,
+        {"greenhouse": [{"token": "acme", "name": "Acme Corporation"}]},
+    )
+
+    assert monitored.display_name == "Acme Corporation"
+    db.commit.assert_called_once_with()
