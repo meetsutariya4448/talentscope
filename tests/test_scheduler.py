@@ -48,6 +48,20 @@ def _make_db_mock():
 # ---------------------------------------------------------------------------
 
 class TestNextBatch:
+    def test_empty_company_list_returns_without_advancing_cursor(self):
+        from app.tasks.scheduler import _next_batch
+        rc = _make_redis_mock()
+
+        assert _next_batch(rc, "key", [], 10) == []
+        rc.incr.assert_not_called()
+
+    @pytest.mark.parametrize("batch_size", [0, -1])
+    def test_nonpositive_batch_size_is_rejected(self, batch_size):
+        from app.tasks.scheduler import _next_batch
+
+        with pytest.raises(ValueError, match="greater than zero"):
+            _next_batch(_make_redis_mock(), "key", [1], batch_size)
+
     def test_first_call_returns_batch_0(self):
         from app.tasks.scheduler import _next_batch
         rc = _make_redis_mock()

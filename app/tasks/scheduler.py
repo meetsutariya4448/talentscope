@@ -45,6 +45,11 @@ def _next_batch(redis_client, key: str, items: list, batch_size: int) -> list:
     firings cannot produce the same batch twice.  Steps a batch counter rather
     than a company index, which means batch boundaries are stable across cycles.
     """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than zero")
+    if not items:
+        return []
+
     n_batches = math.ceil(len(items) / batch_size)
     batch_no = (redis_client.incr(key) - 1) % n_batches
     start = batch_no * batch_size
