@@ -6,9 +6,36 @@ backend — a durable record of what ran, retried, and finished.
 """
 from unittest.mock import MagicMock, patch
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.models import TaskExecution
+
+
+def test_http_metrics_record_unhandled_exceptions_as_500():
+    import app.observability as observability
+
+    app = FastAPI()
+    observability.setup_http_metrics(app)
+
+    @app.get("/explode")
+    def explode():
+        raise RuntimeError("boom")
+
+    with (
+        patch.object(observability.HTTP_REQUEST_DURATION, "labels") as duration_labels,
+        patch.object(observability.HTTP_REQUESTS_TOTAL, "labels") as total_labels,
+        TestClient(app, raise_server_exceptions=False) as client,
+    ):
+        response = client.get("/explode")
+
+    assert response.status_code == 500
+    labels = {"method": "GET", "path": "/explode", "status": "500"}
+    duration_labels.assert_called_once_with(**labels)
+    duration_labels.return_value.observe.assert_called_once()
+    total_labels.assert_called_once_with(**labels)
+    total_labels.return_value.inc.assert_called_once_with()
 
 
 def test_redis_client_bounds_connect_and_read_timeouts():

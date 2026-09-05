@@ -92,16 +92,21 @@ def setup_http_metrics(app: FastAPI) -> None:
     @app.middleware("http")
     async def _metrics_middleware(request: Request, call_next):
         start = time.perf_counter()
-        response = await call_next(request)
-        elapsed = time.perf_counter() - start
-        # Route path template (e.g. "/postings/{id}"), not the raw URL, to
-        # keep label cardinality bounded regardless of query params/path IDs.
-        route = request.scope.get("route")
-        path = route.path if route is not None else request.url.path
-        labels = {"method": request.method, "path": path, "status": str(response.status_code)}
-        HTTP_REQUEST_DURATION.labels(**labels).observe(elapsed)
-        HTTP_REQUESTS_TOTAL.labels(**labels).inc()
-        return response
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        finally:
+            elapsed = time.perf_counter() - start
+            # Route path template (e.g. "/postings/{id}"), not the raw URL,
+            # to keep label cardinality bounded regardless of query params or
+            # path IDs. The default 500 also records unhandled exceptions.
+            route = request.scope.get("route")
+            path = route.path if route is not None else request.url.path
+            labels = {"method": request.method, "path": path, "status": str(status_code)}
+            HTTP_REQUEST_DURATION.labels(**labels).observe(elapsed)
+            HTTP_REQUESTS_TOTAL.labels(**labels).inc()
 
     @app.get("/metrics", include_in_schema=False)
     def metrics():
