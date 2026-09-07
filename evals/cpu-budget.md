@@ -19,6 +19,15 @@ actually had to share anything. "API and ingestion coexist" had never been teste
 
 ## The result that matters: threads, not cores
 
+> **Superseded for the thread comparison.** The table immediately below is a
+> **single run per cell**. The same comparison was later replicated properly —
+> 10 alternating trials, dataset reset before each, 5 per configuration — in
+> [`evals/thread-ab.md`](thread-ab.md). Replication put the effect **lower**:
+> **4.8× throughput** and **13.9× p95**, not the 6.7× and 16× below. Cite
+> `thread-ab.md`, not this section. The rest of this document (the rate-limit
+> finding, the memory finding, the recommended settings) still stands.
+
+
 Identical CPU budget (api 2.0, worker 2.0), identical load, ingestion active in both.
 The only difference is `OMP_NUM_THREADS`.
 
@@ -131,7 +140,9 @@ These are the defaults in `docker-compose.cpubudget.yml` and `docker-compose.dep
 ## Boundaries on these numbers
 
 - **Single run per cell.** No repetition, no confidence intervals. Differences of a few
-  percent between cells are not meaningful; the 6.7× and 16× differences are.
+  percent between cells are not meaningful. The thread-pinning difference was
+  later replicated across 10 alternating trials (evals/thread-ab.md), which is
+  the number to cite; the single-run 6.7×/16× figures here overstated it.
 - One host, one Docker Desktop VM (10 CPUs, 8.32 GB). The *shape* of the thread-
   oversubscription result should hold anywhere the quota is below the host core count;
   the absolute numbers should not be quoted as capacity for any other hardware.

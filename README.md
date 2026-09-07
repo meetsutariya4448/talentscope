@@ -444,6 +444,12 @@ What this deployment does, and why each piece is there:
 | **Teardown** | `scripts/teardown.sh` removes compose stacks, Terraform resources, LocalStack, kind, images and generated files. Idempotent, `--dry-run` first. |
 | **Alerting** | 14 Prometheus rules across availability, data, ingestion and spend, wired to Alertmanager. Previously `prometheus.yml` had no `rule_files` at all, so nothing could ever fire. |
 
+The inference-thread comparison behind the CPU budget was replicated across
+[10 alternating trials](evals/thread-ab.md) with the dataset reset before each:
+pinning the torch thread pool to the container CPU quota gave **4.8× throughput**
+(100.1 vs 20.7 req/s median) and **13.9× lower p95** (665 ms vs 9,239 ms), with
+non-overlapping groups and zero failed requests across 28,335 requests.
+
 Both recovery paths have been exercised and written up:
 [data loss → restore](docs/incidents/2026-09-07-data-loss-restore.md) and
 [bad deploy → rollback](docs/incidents/2026-09-07-bad-deploy-rollback.md).

@@ -18,11 +18,13 @@ data:
   # one-core budget, then spend that budget context-switching between threads
   # that cannot run in parallel.
   #
-  # Measured on compose at an identical 2-CPU budget with ingestion active
-  # (evals/cpu-budget.md): pinning to 1 gave 6.7x the API throughput
-  # (100.3 vs 15.0 req/s), 16x better p95 (720ms vs 11.6s) AND 7.3x the
-  # embedding throughput. Both tiers improved; nothing was traded. The ratio
-  # here is worse than that test, not better, because the limit is 1 CPU.
+  # Measured on compose at an identical 2-CPU budget with ingestion active,
+  # across 10 alternating trials with the dataset reset before each
+  # (evals/thread-ab.md): pinning to 1 gave 4.8x the API throughput
+  # (100.1 vs 20.7 req/s median), 13.9x better p95 (665ms vs 9239ms) and 5.3x
+  # the embedding throughput. Both tiers improved; nothing was traded, and the
+  # two groups did not overlap. The ratio here is worse than that test, not
+  # better, because the limit is 1 CPU rather than 2.
   OMP_NUM_THREADS: "1"
   TORCH_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"
