@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from app.database import get_db
@@ -136,22 +136,48 @@ def get_clusters(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/clusters/run")
+@router.post("/clusters/run", status_code=202)
 def trigger_clustering(
+    response: Response,
     k: Optional[int] = Query(default=None, ge=2, le=30, description="Fix k; omit to auto-select via silhouette"),
+    sync: bool = Query(
+        default=False,
+        description="Run inline and return the summary instead of dispatching. "
+                    "Local/CI seeding only — this blocks a request thread for the "
+                    "whole fit.",
+    ),
     db: Session = Depends(get_db),
 ):
     """
-    Run KMeans clustering synchronously and return the summary.
-    Intended for on-demand use (CI seeding, demo setup); production runs
-    are scheduled via Celery Beat at 03:00 UTC daily.
+    Dispatch KMeans clustering to the worker and return 202 with a task id.
+
+    This used to run inline. That made a public, unauthenticated endpoint
+    capable of occupying a request thread for the length of a full-corpus
+    silhouette grid search over k=5..15 with n_init=10 — the same work the
+    Celery task guards with time_limit=1200 because it can exceed ten minutes.
+    The HTTP route had no timeout at all, so a handful of concurrent calls
+    could saturate the API's threadpool at no cost to the caller.
+
+    `sync=true` keeps the old inline behaviour for CI seeding and local demo
+    setup, where blocking is the point and there may be no worker running.
     """
-    from app.ml.clustering import run_clustering
-    result = run_clustering(db, k=k)
-    if "error" in result:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=422, detail=result["error"])
-    return result
+    if sync:
+        from app.ml.clustering import run_clustering
+        result = run_clustering(db, k=k)
+        if "error" in result:
+            raise HTTPException(status_code=422, detail=result["error"])
+        response.status_code = 200
+        return result
+
+    from app.tasks.clustering import run_clustering_task
+    task = run_clustering_task.delay(k)
+    return {
+        "status": "accepted",
+        "task_id": task.id,
+        "k": k,
+        "detail": "Clustering dispatched to the maintenance queue. "
+                  "Poll GET /analytics/clusters for results.",
+    }
 
 
 def _parse_window(
