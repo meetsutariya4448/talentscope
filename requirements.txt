@@ -28,7 +28,7 @@ groq>=0.9.0
 scikit-learn>=1.4.0
 
 # Observability
-prometheus-client>=0.20.0
+prometheus-client>=0.21.0  # livemin/livemax gauge multiprocess modes (app/observability.py)
 opentelemetry-api>=1.25.0
 opentelemetry-sdk>=1.25.0
 opentelemetry-exporter-otlp-proto-http>=1.25.0

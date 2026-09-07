@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
+from app.api.guards import require_model_ready
 from app.database import get_db
 from app.models import Posting, Company, Skill, PostingSkill
 from app.search.hybrid import (
@@ -56,6 +57,10 @@ def search_postings(
         return _fts_results(db, q, skill, location, page, page_size)
 
     # --- Vector or Hybrid mode ---
+    # Past this point the request will call the encoder. Refuse rather than
+    # load the model inside the request on a cold process.
+    require_model_ready()
+
     fts_ids: list[int] = []
     vec_ids: list[int] = []
 

@@ -1,6 +1,12 @@
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import beat_init, worker_init, worker_process_shutdown, worker_ready
+from celery.signals import (
+    beat_init,
+    worker_init,
+    worker_process_init,
+    worker_process_shutdown,
+    worker_ready,
+)
 from app.config import settings
 
 app = Celery(
@@ -56,7 +62,15 @@ app.conf.update(
         # Coarse backpressure on embedding throughput: bounds how fast the
         # backfill can burn through a large backlog so it can't starve other
         # tasks sharing the embedding queue's worker slots.
-        "app.tasks.embedding.embed_posting": {"rate_limit": "300/m"},
+        #
+        # Configurable (EMBED_RATE_LIMIT) rather than hardcoded, because this
+        # value — not the container's CPU limit — is what actually caps
+        # ingestion throughput at the default. An empty string removes the
+        # limit entirely, which is how evals/cpu-budget.md locates the point
+        # where CPU becomes the real constraint.
+        "app.tasks.embedding.embed_posting": {
+            "rate_limit": settings.embed_rate_limit or None
+        },
     },
 )
 
@@ -114,10 +128,60 @@ def _setup_worker_observability(**kwargs):
     listeners/instrumentation that fork() carries into every child; the
     metrics HTTP server binds its port here too, once, not once per child."""
     from app.database import engine
-    from app.observability import setup_db_metrics, setup_tracing, start_worker_metrics_server
+    from app.observability import (
+        EMBEDDING_MODEL_READY,
+        setup_db_metrics,
+        setup_tracing,
+        start_worker_metrics_server,
+    )
     setup_db_metrics(engine)
     setup_tracing(engine=engine)
     start_worker_metrics_server()
+
+    # The parent is a supervisor: it dispatches to the pool and never encodes
+    # anything, so it never warms a model. But prometheus_client writes a 0
+    # sample for every gauge in every process that imports it, and
+    # embedding_model_ready aggregates with multiprocess_mode="livemin" — so
+    # the parent's untouched 0 dragged the whole worker's readiness to 0
+    # permanently, no matter how warm the children were, and
+    # EmbeddingModelNotReady would have fired forever. Setting it to 1 here
+    # removes that phantom without weakening the signal: if the children
+    # genuinely fail to warm, their own 0s still win the min().
+    EMBEDDING_MODEL_READY.set(1)
+
+
+@worker_process_init.connect
+def _warm_embedding_model(**kwargs):
+    """Load the embedding model in each prefork child as it starts, rather
+    than inside the first embed_posting task that child happens to pick up.
+
+    This is worker_process_init, not worker_init, on purpose: the model is a
+    per-process singleton and fork() does not share it (the same reason
+    k8s/21-worker.yaml runs --concurrency=1 — each child carries its own
+    ~280 MB of it). Warming in the parent would be wasted work that every
+    child then repeats on its own.
+
+    Failure is logged, not raised: a child that cannot warm here will still
+    load lazily on first use, which is the old behaviour, and taking the
+    child down instead would just have the pool respawn it into the same
+    failure."""
+    import logging
+
+    from app.config import settings
+    from app.search.encoder import warm_model
+
+    if not settings.embedding_warmup_enabled:
+        return
+    try:
+        from app.observability import EMBEDDING_MODEL_LOAD_SECONDS, EMBEDDING_MODEL_READY
+        EMBEDDING_MODEL_READY.set(0)
+        elapsed = warm_model()
+        EMBEDDING_MODEL_LOAD_SECONDS.set(elapsed)
+        EMBEDDING_MODEL_READY.set(1)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Worker embedding warmup failed; model will load lazily on first task"
+        )
 
 
 @worker_process_shutdown.connect

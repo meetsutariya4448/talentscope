@@ -1,0 +1,2 @@
+embedding_model_ready 1.0
+embedding_model_load_seconds 2.5636671259999844
