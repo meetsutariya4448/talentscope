@@ -1,637 +1,147 @@
-# TalentScope — Distributed Search & Data Platform
+# TalentScope
 
-A distributed systems project built to prove out real engineering claims,
-not just describe them: a Celery/Redis ingestion pipeline with dead-letter
-handling and idempotency proven under simulated duplicate delivery, a
-Postgres layer with EXPLAIN ANALYZE-backed index evidence, a Prometheus/
-Grafana/OpenTelemetry observability stack validated end-to-end against a
-running system, a Kubernetes deployment on a real 3-node cluster with
-measured worker-scaling throughput, Terraform applied against LocalStack
-with independently AWS-CLI-verified resources, and a k6 load test that
-answers one concrete question — how much traffic can this actually
-sustain, and what breaks first.
+TalentScope collects software job postings from public job APIs, lets you search them by keyword and by meaning at the same time, and answers job-market questions using — and linking back to — the postings it retrieves.
 
-The domain underneath all of that happens to be job-market intelligence:
-it ingests, deduplicates, and analyzes thousands of live postings from
-Greenhouse, Lever, Ashby, and Adzuna, with semantic hybrid search, a RAG
-market Q&A system, automated role clustering, and a daily survival-analysis
-panel tracking how long postings stay open. That's the substrate the
-distributed-systems work runs against — not the point of the project.
+[![CI](https://github.com/meetsutariya4448/talentscope/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/meetsutariya4448/talentscope/actions/workflows/ci.yml)
 
----
+**Stack:** Python · FastAPI · PostgreSQL (pgvector + full-text search) · Celery · Redis · sentence-transformers · Docker Compose · Prometheus
+
+Job boards match on keywords, so searching "platform engineer" misses a posting titled "Infrastructure Engineer" describing the same work. TalentScope runs keyword and vector similarity search over the same corpus and merges the two ranked lists.
+
+## Show the product
+
+The bundled dashboard reads the same API. Below is its posting browser, rendered from a running instance with the seeded demo corpus (232 postings, 10 companies):
+
+![TalentScope dashboard showing the Job Postings table: search, skill and location filters above a results table listing engineering roles with company, location, salary range, source and posted date](docs/images/dashboard-postings.png)
+
+A hybrid query against the same corpus:
+
+```bash
+curl "localhost:8000/postings/?q=kubernetes+platform+engineer&mode=hybrid&page_size=2"
+```
+
+```json
+{
+  "total": 213, "page": 1, "pages": 107, "mode": "hybrid",
+  "results": [
+    { "id": 168, "title": "Platform Engineer", "company_name": "Northwind Systems",
+      "location": "Chicago, IL", "salary_min": 127000.0, "salary_max": 154000.0 }
+  ]
+}
+```
+
+```bash
+curl -X POST localhost:8000/qa/ask -H 'Content-Type: application/json' \
+  -d '{"question":"Which companies are hiring platform engineers, and where?","mode":"hybrid"}'
+```
+
+The response carries the answer, a `sources` array of the exact postings used to produce it, and `cited_ids` for any inline `[N]` markers the model emitted. Answers are grounded in the retrieved set by instruction, and markers pointing outside it are discarded.
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph Ingestion
+    A["Greenhouse · Lever · Ashby · Adzuna"] -->|Celery beat schedules| B["Celery workers<br/>ingestion queue"]
+    B -->|normalize · dedupe · upsert| C[("PostgreSQL")]
+    B -->|one task per posting| D["Celery workers<br/>embedding queue"]
+    D -->|384-d vector| C
+  end
+
+  subgraph Query
+    E["Client"] --> F["FastAPI"]
+    F --> G["Keyword search<br/>GIN full-text"]
+    F --> H["Vector search<br/>pgvector HNSW"]
+    G --> I["Reciprocal Rank Fusion"]
+    H --> I
+    I --> J["Ranked postings"]
+    J --> K["Answer generation<br/>grounded in retrieved postings"]
+  end
+
+  G -.-> C
+  H -.-> C
+  R[("Redis")] -.->|Celery broker + results| B
+  R -.->|answer cache · spend counters| F
+  R -.->|in-flight claims| D
+```
+
+Redis is the Celery broker and result backend, caches generated answers, holds the per-posting claims that stop overlapping backfills embedding the same posting twice, and stores the counters bounding spend on the answer endpoint.
 
 ## Engineering highlights
 
-Numbers below are all real, measured, and reproducible — not estimates.
-Full narrative and methodology for each behind the linked doc.
+**Hybrid retrieval with source-linked answers.** Keyword and vector results merge via Reciprocal Rank Fusion, ranking by agreement between methods without either silencing the other. Every answer returns the postings it came from.
 
-| Area | Finding |
-|---|---|
-| **Ingestion resilience** | Idempotency proven directly (`tests/test_idempotency.py` simulates duplicate task delivery); dead-letter store + explicit task-state tracking; a real backpressure bug fixed (duplicate embedding dispatch under overlapping beat firings) |
-| **Postgres** ([docs/db-engineering.md](docs/db-engineering.md)) | HNSW vs. brute-force vector search: **8.6x**. GIN vs. seq scan: **5.9x**. A methodology bug in the `ef_search` recall sweep caught and fixed *before* trusting the numbers |
-| **Observability** ([docs/observability.md](docs/observability.md)) | Prometheus + Grafana + OpenTelemetry, validated with `curl` against every real endpoint — not just "the container started." One pre-existing deployment bug found and fixed along the way (`.env`'s `localhost` defaults silently broke `docker-compose up`) |
-| **Kubernetes** ([docs/kubernetes.md](docs/kubernetes.md)) | Deployed to a real 3-node `kind` cluster. Docker image **9.01GB → 1.94GB** (found `sentence-transformers` silently pulling the CUDA build of torch on a deployment with no GPU). Worker throughput 2→4 replicas: **~2.5x**, real `sentence-transformers` inference, not a stand-in |
-| **Terraform** ([docs/terraform.md](docs/terraform.md)) | 38 resources applied against LocalStack, independently re-verified via the AWS CLI afterward. Confirmed directly (not assumed) which services are LocalStack Pro-only, and architected around it rather than writing untestable Terraform |
-| **Load testing** ([evals/load-test.md](evals/load-test.md)) | A real concurrency bug found and fixed at just 2 virtual users, before any capacity data was collected. Root-caused the actual bottleneck through controlled comparisons (worker paused vs. running; 1 vs. 4 uvicorn processes) down to CPU thread oversubscription — not the database, which was never the limiting factor |
+**Ingestion that tolerates repetition and failure.** Fetch tasks retry with exponential backoff. Ingestion upserts on `(source, source_id)`, so a redelivered task updates a posting rather than duplicating it, and refreshes skill links when a description changes. Tasks exhausting their retries land in a `failed_tasks` table, surviving the Redis result backend's TTL.
 
----
+**Readiness that reflects what the service can do.** The embedding model loads per process, and readiness previously reported healthy while it was still unloaded — so the first search after a restart paid the load inside the request. It is now warmed at startup, `/ready` fails until that completes, and encoder-dependent paths return 503 with `Retry-After`. Liveness stays dependency-free, so a slow load cannot cause a restart loop ([`evals/coldstart.md`](evals/coldstart.md)).
 
-## Architecture
+**Diagnosing inference-thread oversubscription.** A container CPU limit is a cgroup quota `os.cpu_count()` cannot see, so PyTorch sized its thread pool from the host's 10 cores inside a 2-CPU container and spent the quota context-switching.
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                                  TalentScope                                  │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                                │
-│  External APIs          Task Queue (Celery)         Database                  │
-│  ┌───────────┐          ┌─────────────────┐        ┌───────────────────────┐  │
-│  │ Greenhouse│─────────▶│ ingestion queue │───────▶│      PostgreSQL        │  │
-│  │  Lever    │          │ embedding queue │        │  postings + embedding │  │
-│  │  Ashby    │          │ maintenance     │        │  (pgvector HNSW)       │  │
-│  │  Adzuna   │          │  queue          │        │  search_vector (GIN,   │  │
-│  └───────────┘          └─────────────────┘        │   GENERATED column)    │  │
-│                               ▲    │                │  posting_snapshots,    │  │
-│                          ┌────┴────┴────┐           │  task_executions,      │  │
-│                          │ Redis        │           │  failed_tasks (DLQ)    │  │
-│                          │ broker/cache │           └───────────────────────┘  │
-│                          │ heartbeats   │                       │              │
-│                          └──────────────┘                       ▼              │
-│                                                    ┌───────────────────────┐   │
-│  External LLM                                      │    FastAPI Server     │   │
-│  ┌──────────┐                                      │ /postings mode=hybrid │   │
-│  │  Groq    │◀────────────────────────────────────▶│ /qa/ask   (RAG)       │   │
-│  │  LLaMA 3 │                                      │ /health  /ready       │   │
-│  └──────────┘                                      │ /metrics (Prometheus) │   │
-│                                                     └───────────────────────┘   │
-│                                                                 │               │
-│  Observability                                     ┌───────────────────────┐  │
-│  Prometheus · Grafana · OpenTelemetry ◀─────────────│  Chart.js Dashboard    │  │
-│                                                      └───────────────────────┘  │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  Deployment targets: docker-compose (local) · Kubernetes (kind) · Terraform   │
-│  + LocalStack (AWS-shaped IaC)                                                │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+## Measured performance
 
----
+Effect of pinning the inference thread pool, at a fixed 2-CPU limit with ingestion running:
 
-## Features
+| | Baseline (host-sized pool) | Tuned (pinned to quota) | Change |
+|---|---|---|---|
+| Successful API throughput | 20.7 req/s | **100.1 req/s** | 4.8× |
+| p95 latency | 9,239 ms | **665 ms** | 13.9× lower |
+| Ingestion | 5.7 postings embedded/s | **29.9 postings embedded/s** | 5.3× |
 
-| Layer | What it does |
-|---|---|
-| **Ingestion** | Celery Beat fetches from Greenhouse/Lever/Ashby/Adzuna on a schedule; exact + fuzzy dedup; idempotent under redelivery; Redis-backed batch cursor survives worker restarts |
-| **Resilience** | Named queues, job timeouts, dead-letter store, explicit task-state tracking, worker heartbeats, graceful shutdown, backpressure guards — see [Ingestion resilience](#ingestion-resilience) |
-| **Posting panel** | Daily snapshots track posting presence/absence and description drift over time — the event history a survival analysis (Kaplan-Meier/Cox) reads directly |
-| **Embedding** | all-MiniLM-L6-v2 (384-dim) encodes every posting; pgvector column with HNSW index (m=16, ef_construction=64) |
-| **Hybrid Search** | FTS (GIN/tsvector, OR semantics) + vector cosine fused via Reciprocal Rank Fusion (k=60) |
-| **RAG Q&A** | 8 hybrid-retrieved postings → Groq llama-3.1-8b-instant; Redis SHA-256 cache; server-side citation validation |
-| **Role Clustering** | KMeans on pgvector embeddings; k auto-selected by silhouette grid (5–15); TF-IDF cluster labels; daily Beat task |
-| **Analytics** | Skill demand, salary trends, top companies; Chart.js dashboard |
-| **Observability** | Prometheus (`/metrics` on api + worker), Grafana (auto-provisioned dashboard), OpenTelemetry tracing |
+Medians of five trials per configuration, alternating between them so host background load is shared rather than favouring one. The database was restored from the same snapshot before every trial (1,732 postings). Load was k6 at 60 virtual users for 45 seconds against search and analytics endpoints, with 1,400 embedding tasks queued beforehand and the rate limit removed so CPU was the binding constraint. Resource limits, concurrency, dataset size and image were read back from the containers each trial and were identical; only the thread setting differed.
 
----
+All 28,335 requests across the ten trials returned 2xx. The slower configuration was slower, not failing.
 
-## Quick Start (Docker Compose)
+These are single-host figures from a developer laptop, measuring one setting's effect rather than deployment capacity. Method, per-trial data and limitations: [`evals/thread-ab.md`](evals/thread-ab.md); raw artifacts in [`evals/thread-ab/`](evals/thread-ab/).
+
+## Quick start
+
+Requires Docker. Search needs no credentials; the answer endpoint needs a Groq key.
 
 ```bash
 git clone https://github.com/meetsutariya4448/talentscope.git
 cd talentscope
-
 cp .env.example .env
-# Edit .env — add GROQ_API_KEY (free at console.groq.com), optionally Adzuna credentials
+```
 
-docker-compose up --build
-docker-compose exec api alembic upgrade head
+`.env` is gitignored. Leave it unchanged for search only; for answers set `GROQ_API_KEY` (free tier at console.groq.com). `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` are optional, used only by the Adzuna source. If Postgres or Redis already run locally, set `POSTGRES_HOST_PORT` and `REDIS_HOST_PORT` to free ports.
 
+```bash
+# Required services only — Prometheus, Grafana and cAdvisor are optional
+docker compose up -d --build postgres redis api worker beat
+
+# Migrate, then load and embed a deterministic demo corpus
+docker compose exec -T api alembic upgrade head
+docker compose exec -T api python scripts/seed_demo.py --embed
+
+# Readiness reports database, Redis and embedding model separately
+curl localhost:8000/ready
+
+curl "localhost:8000/postings/?q=kubernetes+platform+engineer&mode=hybrid&page_size=5"
 open http://localhost:8000/dashboard/
 ```
 
-Services:
-- API: http://localhost:8000 (docs at `/docs`)
-- Dashboard: http://localhost:8000/dashboard/
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000 (anonymous viewer access)
-- cAdvisor (container CPU/mem): http://localhost:8081
+`mode` accepts `fts`, `vector` or `hybrid`. With a key set, `POST /qa/ask` answers questions, bounded by a daily budget and per-client rate limit; exceeding either returns retrieved postings without a generated answer. Add `prometheus grafana cadvisor` to the `up` command for metrics on `:9090` and dashboards on `:3000`. Stop with `docker compose down -v`.
 
----
+## Testing and scope
 
-## Kubernetes
+**171 tests passed in hosted CI** at commit `3dcb380` on `main` ([run 34087037678](https://github.com/meetsutariya4448/talentscope/actions/runs/34087037678)), against PostgreSQL with pgvector and Redis service containers.
 
-Deployed and debugged against a real 3-node `kind` cluster — full narrative,
-every real failure hit and its fix, and the worker-scaling throughput data:
-[docs/kubernetes.md](docs/kubernetes.md).
+- Ingestion idempotency is tested against real PostgreSQL, not a mock: repeated ingestion, skill links following changed content, dead-letter writes.
+- **Broker-level behaviour is not tested.** No test starts a real Celery worker or forces a redelivery, so worker-crash and duplicate-delivery handling under an actual broker is unverified. The at-least-once configuration is present but not demonstrated.
+- Benchmarks, recovery drills, Docker builds and infrastructure validation ran locally. CI runs the test suite only — no build, no infrastructure checks, no deploy step.
+- Terraform and Kubernetes were exercised against LocalStack and kind: local infrastructure exercises. **No cloud deployment is claimed**; recorded cloud spend is $0.00.
 
-```bash
-kind create cluster --config k8s/kind-config.yaml
-docker build -t talentscope:latest .
-kind load docker-image talentscope:latest --name talentscope
-kubectl apply -f k8s/99-metrics-server.yaml
-bash k8s/apply.sh
-```
+## Further reading
 
-Postgres (StatefulSet), Redis, api/worker (Deployments with HPAs), beat
-(pinned singleton — no leader election, a second replica double-fires
-every scheduled task), a migration Job, ConfigMap/Secret split. Demo the
-worker-scaling throughput test (`bash k8s/scale-demo.sh`, real
-`sentence-transformers` inference, not a stand-in) — 2→4 replicas showed a
-genuine ~2.5x improvement; 8 replicas hit a real hardware ceiling on this
-laptop rather than scaling further, documented honestly in
-[evals/k8s-scaling.md](evals/k8s-scaling.md) instead of glossed over.
-
----
-
-## Terraform + LocalStack
-
-VPC/subnets/security groups, IAM, S3, Secrets Manager, CloudWatch — applied
-against LocalStack and independently re-verified via the AWS CLI
-afterward, not just trusted from `terraform apply`'s exit code. Full
-narrative, including which AWS services are LocalStack Pro-only (confirmed
-directly, not assumed) and how that shaped the architecture:
-[docs/terraform.md](docs/terraform.md).
-
-```bash
-docker run -d --name talentscope-localstack -p 4566:4566 localstack/localstack:3.0
-cd terraform
-terraform init
-cp terraform.tfvars.example terraform.tfvars
-terraform apply
-```
-
----
-
-## Load Testing
-
-k6 load test answering one question: how much traffic can this sustain on
-real hardware before latency or errors become unacceptable, and what's the
-limiting resource first? Full narrative, every table, and the concurrency
-bug found along the way: [evals/load-test.md](evals/load-test.md).
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d postgres redis api worker beat
-python k6/seed_for_load_test.py   # inside the api container
-bash k6/run-stage.sh 20 30s
-```
-
----
-
-## Ingestion resilience
-
-At-least-once Celery delivery (`task_acks_late` + `task_reject_on_worker_lost`)
-with the resilience layer to match:
-
-- **Idempotency**, proven directly — `tests/test_idempotency.py` simulates
-  duplicate task delivery and asserts no duplicate rows, no duplicate
-  skill links, correct backpressure behavior.
-- **Dead-letter store** (`failed_tasks` table) — a task that exhausts
-  retries lands here for triage instead of vanishing once Celery's Redis
-  result backend TTLs out.
-- **Explicit task-state tracking** (`task_executions` table) for
-  coarse-grained tasks (fetch/dispatch/clustering/rollup) — scoped away
-  from high-frequency per-posting tasks to avoid write amplification.
-- **Worker heartbeats** — Redis TTL keys refreshed every minute via
-  `celery.control.inspect().ping()`.
-- **Backpressure** — a real bug found and fixed: `embed_missing_postings`
-  was re-dispatching duplicate work for postings still embedding from the
-  previous hourly firing. Fixed with a Redis claim-based in-flight guard.
-- **Content-drift re-embedding** — a deeper bug found while fixing
-  `search_vector` staleness: `postings.title`/`description` were never
-  refreshed on re-fetch at all, only hash/version bookkeeping. Now content
-  refreshes and re-embeds on real drift.
-
----
-
-## Environment Variables
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `DATABASE_URL` | Yes | `postgresql://talentscope:talentscope@localhost:5432/talentscope` | PostgreSQL connection string |
-| `REDIS_URL` | Yes | `redis://localhost:6379/0` | Redis — Celery broker/backend and RAG cache |
-| `GROQ_API_KEY` | Yes (for Q&A) | `""` | Groq API key — get free at [console.groq.com](https://console.groq.com) |
-| `ADZUNA_APP_ID` | No | `""` | Adzuna API app ID (from developer.adzuna.com) |
-| `ADZUNA_APP_KEY` | No | `""` | Adzuna API app key |
-| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_RECYCLE_SECONDS` | No | `10` / `20` / `1800` | Connection pool sizing (`app/config.py`) |
-| `VECTOR_EF_SEARCH` | No | unset | HNSW runtime search-width override — see [docs/db-engineering.md](docs/db-engineering.md) |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | unset | Enables OpenTelemetry tracing when set; a no-op otherwise |
-| `PROMETHEUS_MULTIPROC_DIR` | Worker only | unset | Aggregates Prometheus metrics across Celery's forked pool — see `app/observability.py` |
-
-Without `GROQ_API_KEY`, `/qa/ask` returns HTTP 503.
-Without Adzuna credentials, only Greenhouse/Lever/Ashby data is ingested.
-
----
-
-## API Endpoints
-
-### Postings
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/postings/` | Search job postings (FTS, vector, or hybrid) |
-| `GET` | `/postings/stats` | Total count and breakdown by source |
-
-**Query parameters for `GET /postings/`:**
-
-| Param | Default | Description |
-|---|---|---|
-| `q` | `""` | Search query |
-| `mode` | `fts` | `fts` · `vector` · `hybrid` |
-| `skill` | `""` | Filter by skill name (e.g. `Python`) |
-| `location` | `""` | Partial match on location string |
-| `page` | `1` | Page number |
-| `page_size` | `20` | Results per page (max 100) |
-
-```bash
-curl "http://localhost:8000/postings/?q=machine+learning+engineer&mode=hybrid"
-curl "http://localhost:8000/postings/?q=backend&skill=Go&mode=fts"
-```
-
-### Market Q&A (RAG)
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/qa/ask` | Answer a market question using retrieved postings + LLM |
-
-```bash
-curl -X POST http://localhost:8000/qa/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What skills are most in demand for backend roles?", "mode": "hybrid"}'
-```
-
-### Analytics
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/analytics/skill-demand` | Top skills by posting count (windowed) |
-| `GET` | `/analytics/salary-trends` | Average salary by month |
-| `GET` | `/analytics/top-companies` | Companies with most postings |
-| `GET` | `/analytics/clusters` | Latest KMeans role clusters with labels |
-| `POST` | `/analytics/clusters/run` | Trigger a clustering run (optional `?k=N`) |
-
-### Operations
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Liveness — never touches DB/Redis |
-| `GET` | `/ready` | Readiness — checks DB + Redis, 503 if either fails |
-| `GET` | `/metrics` | Prometheus metrics (api process) |
-| `GET` | `:9808/metrics` | Prometheus metrics (worker process, multiprocess-aggregated) |
-
----
-
-## Search Modes
-
-### FTS (Full-Text Search)
-PostgreSQL `tsvector` / `ts_rank` via a GIN index, backed by a
-`GENERATED ALWAYS AS ... STORED` column so it's always current — Postgres
-recomputes it on every write, closing a staleness bug where an edited
-posting kept matching stale text forever. OR semantics: `"senior backend
-engineer"` matches any posting containing any of those terms, not all
-three, so conversational queries don't zero out.
-
-### Vector (Semantic)
-Query encoded with all-MiniLM-L6-v2 (384-dim, normalized). Nearest-neighbor
-search over pgvector's HNSW index (`<=>` cosine distance) — **8.6x faster**
-than brute-force at 20k rows, measured (see
-[docs/db-engineering.md](docs/db-engineering.md)). Finds semantically
-similar postings even when exact keywords don't match (`"MLOps"` ↔ `"ML
-infrastructure"`).
-
-### Hybrid (default for Q&A)
-Fetches 200 candidates from each source, fuses the two ranked lists with
-Reciprocal Rank Fusion (`score = Σ 1/(60 + rank_i)`). Precision of FTS +
-recall of vector; neither source is silenced.
-
----
-
-## Benchmark
-
-Direct search-path latency at real production corpus scale — complements
-[docs/db-engineering.md](docs/db-engineering.md)'s EXPLAIN ANALYZE evidence,
-which uses a larger synthetic corpus specifically to stress-test individual
-indexes in isolation; this is the end-to-end number for the corpus this
-app actually runs at.
-
-**Environment**: Apple M2 (8-core, 8 GB RAM), macOS, local dev machine — not
-a production deployment. Python 3.11.7 (x86 via Rosetta 2). PostgreSQL 15
-running locally.
-
-**Methodology**: 12 queries × 50 repeats per mode, 2 warm-up runs per query
-discarded. 600 samples per mode. No HTTP overhead — search functions called
-directly. Results stored in `evals/benchmark.json`.
-
-| Mode | p50 | p95 | p99 | σ |
-|---|---|---|---|---|
-| FTS (GIN/tsvector) | 6.9 ms | 11.1 ms | 13.9 ms | 2.1 ms |
-| Vector (HNSW cosine) | 14.9 ms | 21.2 ms | 28.0 ms | 8.4 ms |
-| Hybrid (RRF) | 28.9 ms | 39.2 ms | 46.4 ms | 6.0 ms |
-
-**Embedding latency** (all-MiniLM-L6-v2, CPU):
-- Single-query encode (search path): **p50 = 12.3 ms** — included in the
-  vector/hybrid numbers above, so HNSW scan alone is ~3 ms.
-- Batch encode (ingestion backfill): **131 sentences/sec** (48-sentence batch).
-
-**Concurrency note**: `fts_search` and `vector_search` are called
-sequentially (hybrid p50 ≈ FTS p50 + vector p50) — both are independent
-read queries and could be parallelized, but the synchronous SQLAlchemy
-`Session` isn't thread-safe, so that needs either separate sessions per
-sub-query or a migration to async SQLAlchemy. At this corpus size the
-saving (~6 ms) is modest; [evals/load-test.md](evals/load-test.md) found a
-much larger effect from CPU thread oversubscription under concurrent
-load, which is the more material problem at this scale today.
-
-Reproduce:
-
-```bash
-python scripts/benchmark.py          # 50 repeats (default)
-python scripts/benchmark.py --repeats 100
-```
-
----
-
-## RAG Market Q&A
-
-`POST /qa/ask` retrieves the 8 best postings for the question (hybrid
-search), injects them as context into a structured prompt, and calls
-Groq's `llama-3.1-8b-instant`.
-
-**Cache**: SHA-256 of `question|mode|N_SOURCES` → Redis (TTL 1 h).
-**Citation validation**: the server strips any citation number outside the
-range of retrieved postings so out-of-range hallucinated references never
-reach the client.
-**Failure modes**: Redis failure is non-fatal (degraded to no-cache).
-Missing `GROQ_API_KEY` returns HTTP 503 immediately.
-
----
-
-## Role Clustering
-
-A daily Celery Beat task (`03:00 UTC`) clusters all embedded postings by
-semantic similarity: pulls embeddings (`ORDER BY id` — required for
-reproducible KMeans centroid init), silhouette grid over k=5..15, fits
-KMeans, labels each cluster by TF-IDF-scored discriminating skills, and
-persists via a single set-based bulk `UPDATE ... FROM unnest()` (replaced
-an earlier per-row update loop — see
-[docs/db-engineering.md](docs/db-engineering.md)).
-
-> **Known limitation**: cluster IDs are reassigned on every fit. Cross-run
-> identity is not tracked — add centroid matching (cosine + Hungarian
-> algorithm) before building a trend endpoint.
-
----
-
-## Running Tests
-
-```bash
-pip install -r requirements.txt
-
-createdb talentscope_test
-psql talentscope_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-export TEST_DATABASE_URL=postgresql://talentscope:talentscope@localhost:5432/talentscope_test
-export DATABASE_URL=$TEST_DATABASE_URL
-
-alembic upgrade head
-pytest tests/ -v
-```
-
-**153 test functions across 15 files**, run against a real Postgres+pgvector instance (no mocked DB):
-
-| File | Tests | Coverage |
-|---|---|---|
-| `tests/test_qa.py` | 18 | RAG pipeline, Redis cache, citation validation |
-| `tests/test_budget.py` | 17 | Paid-LLM daily budget, per-client rate limit, fail-closed behaviour |
-| `tests/test_search.py` | 15 | FTS, vector, hybrid search; RRF unit tests |
-| `tests/test_scheduler.py` | 13 | Batch dispatch, Redis cursor restart-survival |
-| `tests/test_tasks.py` | 12 | Normalizers, skill extraction, task smoke |
-| `tests/test_panel.py` | 12 | Posting-panel survival tracking, resurrection, drift |
-| `tests/test_monitoring.py` | 12 | Task-state tracking, dead-letter writes, heartbeats |
-| `tests/test_clustering.py` | 12 | KMeans pipeline, TF-IDF labels, bulk update, API endpoints |
-| `tests/test_api.py` | 11 | All FastAPI endpoints |
-| `tests/test_idempotency.py` | 10 | Duplicate delivery, backpressure, dead-letter |
-| `tests/test_ready.py` | 9 | Readiness gating: liveness vs. readiness, cold-model refusal |
-| `tests/test_dedup.py` | 4 | Cross-source fuzzy duplicate detection |
-| `tests/test_config.py` | 3 | Settings validation |
-| `tests/test_company_registry.py` | 3 | Target-company YAML loading |
-| `tests/test_encoder.py` | 1 | Encoder singleton under concurrent construction |
-
----
-
-## Deployment
-
-**docker-compose is the operated deployment target.** `docker-compose.deploy.yml`
-is a standalone stack (not an overlay) that runs an immutable, git-SHA-tagged
-image with no source bind mount, explicit CPU/memory budgets, hardened
-containers, and the full observability stack including Alertmanager and an
-OpenTelemetry collector.
-
-```bash
-bash scripts/deploy.sh                 # build + tag + deploy the current commit
-bash scripts/dc.sh ps                  # docker compose against the deployed stack
-bash scripts/backup_db.sh              # pg_dump -Fc | gzip -> S3, upload verified
-bash scripts/restore_db.sh --latest    # restore, verified against a row-count manifest
-bash scripts/rollback.sh               # back to the last verified-good image tag
-bash scripts/teardown.sh --dry-run     # then --yes to remove everything
-```
-
-What this deployment does, and why each piece is there:
-
-| Concern | Mechanism |
+| Document | Contents |
 |---|---|
-| **Immutable releases** | `talentscope:<git-sha>`, never `latest`. A dirty tree gets a content hash appended, so the same tag can never mean two different trees. Rollback is impossible without this. |
-| **Secrets** | Read from AWS Secrets Manager at deploy time (LocalStack by default), the same path `terraform/compute.tf`'s cloud-init uses. Postgres and Grafana passwords are generated, never committed. |
-| **Least privilege** | Non-root (uid 10001), read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`. IAM grants read/write on the backups bucket but deliberately **no `s3:DeleteObject`**. |
-| **Backups** | Versioned, encrypted, public-access-blocked S3 bucket with a lifecycle rule matching RDS's 7-day retention. Every backup ships a manifest of row counts; restore fails if they don't match. |
-| **Rollback** | `scripts/rollback.sh` reads the *running* image from the container, so a failed deploy rolls back to the last verified-good tag rather than one release too far. Recreates only app services — the data layer stays up. |
-| **Teardown** | `scripts/teardown.sh` removes compose stacks, Terraform resources, LocalStack, kind, images and generated files. Idempotent, `--dry-run` first. |
-| **Alerting** | 14 Prometheus rules across availability, data, ingestion and spend, wired to Alertmanager. Previously `prometheus.yml` had no `rule_files` at all, so nothing could ever fire. |
+| [`evals/thread-ab.md`](evals/thread-ab.md) | Thread-pinning benchmark: method, per-trial data, limitations |
+| [`evals/coldstart.md`](evals/coldstart.md) | Model warmup and readiness gating, measured across a restart |
+| [`evals/cpu-budget.md`](evals/cpu-budget.md) | CPU and memory budgeting; why a rate limit capped ingestion |
+| [`docs/db-engineering.md`](docs/db-engineering.md) | Index choices with EXPLAIN ANALYZE evidence |
+| [`docs/incidents/`](docs/incidents/) | Two recovery drills: data loss to restore, bad deploy to rollback |
+| [`docs/observability.md`](docs/observability.md) | Metrics, probe semantics, tracing |
+| [`docs/terraform.md`](docs/terraform.md) · [`docs/kubernetes.md`](docs/kubernetes.md) | Infrastructure definitions, and what LocalStack and kind could not exercise |
+| [`docs/cost.md`](docs/cost.md) | Running cost, plus a priced estimate for the Terraform topology |
 
-The inference-thread comparison behind the CPU budget was replicated across
-[10 alternating trials](evals/thread-ab.md) with the dataset reset before each:
-pinning the torch thread pool to the container CPU quota gave **4.8× throughput**
-(100.1 vs 20.7 req/s median) and **13.9× lower p95** (665 ms vs 9,239 ms), with
-non-overlapping groups and zero failed requests across 28,335 requests.
-
-Both recovery paths have been exercised and written up:
-[data loss → restore](docs/incidents/2026-09-07-data-loss-restore.md) and
-[bad deploy → rollback](docs/incidents/2026-09-07-bad-deploy-rollback.md).
-Costs are recorded in [docs/cost.md](docs/cost.md) — **actual cloud spend was $0.00**,
-because everything ran locally against LocalStack; the AWS figures there are a dated,
-unvalidated estimate.
-
-**Kubernetes** ([above](#kubernetes)) remains as a local `kind` exercise —
-StatefulSet/Deployment/HPA/probes, deployed against a real cluster, not just
-written. **Terraform + LocalStack** ([above](#terraform--localstack)) provisions
-the AWS-shaped infrastructure a real deployment would sit on. Neither is the
-thing that gets operated; the compose stack above is.
-
-For a lighter-weight PaaS option:
-
-```bash
-npm install -g @railway/cli
-railway login && railway init
-# Add PostgreSQL (pgvector plugin) and Redis via the Railway dashboard
-railway variables set DATABASE_URL=<from-railway-postgres>
-railway variables set REDIS_URL=<from-railway-redis>
-railway variables set GROQ_API_KEY=<your-groq-key>
-railway up
-railway run alembic upgrade head
-```
-
-Worker and beat need their own Railway services:
-`celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4` /
-`celery -A app.tasks.celery_app beat --loglevel=info`.
-
----
-
-## Further documentation
-
-| Doc | Covers |
-|---|---|
-| [docs/db-engineering.md](docs/db-engineering.md) | EXPLAIN ANALYZE evidence for every index, connection pooling, bulk writes |
-| [docs/observability.md](docs/observability.md) | Prometheus/Grafana/OpenTelemetry architecture, `/health` vs `/ready` |
-| [docs/kubernetes.md](docs/kubernetes.md) | K8s manifests, every real failure hit and its fix |
-| [docs/terraform.md](docs/terraform.md) | AWS architecture, LocalStack Pro service boundary |
-| [evals/load-test.md](evals/load-test.md) | k6 methodology, the full bottleneck investigation, the answer |
-| [evals/k8s-scaling.md](evals/k8s-scaling.md) | Worker replica scaling throughput data and its real hardware ceiling |
-| [evals/results.md](evals/results.md) | Vector-search tail-latency investigation (Apple M2, local) |
-
----
-
-## Resume Bullet Mapping
-
-### Bullet 1 — Distributed ingestion pipeline
-> "Engineered a **distributed data pipeline** using **Celery/Redis task queues** with **dead-letter handling**, **explicit task-state tracking**, and **idempotency proven under simulated duplicate delivery**, ingesting from four live APIs with **fault-tolerant retry logic**, **worker heartbeats**, and **scheduled cron-driven ingestion**."
-
-| Phrase | Code location |
-|---|---|
-| distributed data pipeline | `app/tasks/` — named queues (ingestion/embedding/maintenance) via `task_routes` |
-| dead-letter handling | `app/tasks/monitoring.py` — `failed_tasks` table, populated from `task_failure` signal |
-| explicit task-state tracking | `app/tasks/monitoring.py` — `task_executions` table |
-| idempotency proven under duplicate delivery | `tests/test_idempotency.py` |
-| fault-tolerant retry logic | `autoretry_for`, `retry_backoff`, `task_reject_on_worker_lost` in `app/tasks/celery_app.py` |
-| worker heartbeats | `app/tasks/monitoring.py:record_worker_heartbeats` |
-| scheduled cron-driven ingestion | `app/tasks/celery_app.py:beat_schedule` |
-
-### Bullet 2 — Postgres performance engineering
-> "Produced **EXPLAIN ANALYZE-backed evidence** for every index in a Postgres/pgvector schema — **GIN full-text (5.9x)**, **composite B-tree (3.7x)**, **HNSW vector search (8.6x)** vs. sequential scan — caught and fixed a **methodology bug** in an `ef_search` recall sweep before trusting the results, and replaced an **n-round-trip update loop** with a single set-based `UPDATE ... FROM unnest()`."
-
-| Phrase | Code location |
-|---|---|
-| EXPLAIN ANALYZE evidence | `scripts/db_engineering_report.py`, `docs/db-engineering.md` |
-| methodology bug caught and fixed | `docs/db-engineering.md` — `ef_search` sweep's "ground truth" was itself approximate |
-| bulk update | `app/ml/clustering.py:run_clustering()` |
-| connection pooling | `app/database.py`, `app/config.py` |
-
-### Bullet 3 — Observability
-> "Instrumented a distributed system with **Prometheus** (multiprocess-aggregated across a Celery worker pool), **Grafana** (auto-provisioned dashboards), and **OpenTelemetry** tracing — validated end-to-end against a live running stack, not unit-tested in isolation — and found a **pre-existing deployment bug** along the way."
-
-| Phrase | Code location |
-|---|---|
-| Prometheus, multiprocess-aggregated | `app/observability.py` |
-| Grafana, auto-provisioned | `observability/grafana/` |
-| OpenTelemetry tracing | `app/observability.py:setup_tracing` |
-| pre-existing deployment bug found | `docs/observability.md` — `.env`'s `localhost` defaults broke `docker-compose up` |
-
-### Bullet 4 — Kubernetes
-> "Deployed a multi-service application to a real **3-node Kubernetes cluster** with **HorizontalPodAutoscalers**, **StatefulSets**, and **health/readiness probes** — reduced the Docker image **9.01GB → 1.94GB**, measured **~2.5x worker-scaling throughput** on real ML inference, and root-caused three separate real cluster failures to their actual fixes."
-
-| Phrase | Code location |
-|---|---|
-| 3-node kind cluster | `k8s/kind-config.yaml` |
-| HPA / StatefulSet / probes | `k8s/20-api.yaml`, `k8s/21-worker.yaml`, `k8s/10-postgres.yaml` |
-| image size reduction | `.dockerignore`, CPU-only torch pin in `requirements.txt` |
-| worker-scaling throughput | `k8s/scale-demo.sh`, `evals/k8s-scaling.md` |
-| real cluster failures + fixes | `docs/kubernetes.md` |
-
-### Bullet 5 — Terraform + AWS
-> "Provisioned AWS infrastructure as code with **Terraform** — VPC/subnets/security groups, **least-privilege IAM**, S3, Secrets Manager, CloudWatch — applied against **LocalStack** and **independently re-verified via the AWS CLI**, with the compute architecture adapted around confirmed LocalStack Pro service boundaries rather than left untested."
-
-| Phrase | Code location |
-|---|---|
-| VPC / security groups | `terraform/network.tf` |
-| least-privilege IAM | `terraform/iam.tf` — no wildcard resource ARNs |
-| Secrets Manager | `terraform/secrets.tf` |
-| AWS CLI verification | `docs/terraform.md` |
-
-### Bullet 6 — Load testing
-> "Load-tested a distributed system with **k6**, found and fixed a **real concurrency bug** at 2 virtual users before collecting any capacity data, and root-caused the actual bottleneck through **controlled comparisons** — isolating CPU thread oversubscription as the limiting resource, not the database."
-
-| Phrase | Code location |
-|---|---|
-| concurrency bug found and fixed | `app/search/encoder.py:get_model()` — double-checked locking |
-| regression test | `tests/test_encoder.py` |
-| controlled comparisons | `evals/load-test.md` — worker paused vs. running; 1 vs. 4 uvicorn processes |
-
-### Bullet 7 — Semantic hybrid search
-> "Implemented **semantic hybrid search** combining a **pgvector HNSW index** (all-MiniLM-L6-v2, 384-dim, cosine) with PostgreSQL **GIN full-text search**, fused via **Reciprocal Rank Fusion**."
-
-| Phrase | Code location |
-|---|---|
-| pgvector HNSW index | `alembic/versions/0002_add_pgvector_embedding.py` |
-| all-MiniLM-L6-v2 | `app/search/encoder.py:get_model()` |
-| cosine distance | `app/search/hybrid.py:vector_search()` |
-| Reciprocal Rank Fusion | `app/search/hybrid.py:reciprocal_rank_fusion()` |
-
-### Bullet 8 — RAG Q&A and role clustering
-> "Built a **RAG market Q&A system** (Groq llama-3.1-8b-instant, Redis-cached, server-side citation validation) and automated **KMeans role clustering** (silhouette-selected k, TF-IDF cluster labels) as a scheduled Celery Beat task."
-
-| Phrase | Code location |
-|---|---|
-| RAG market Q&A | `app/search/rag.py:answer_question()` |
-| citation validation | `app/search/rag.py:_parse_cited_ids()` |
-| KMeans role clustering | `app/ml/clustering.py:run_clustering()` |
-| Celery Beat task | `app/tasks/clustering.py` |
-
----
-
-## Data Sources
-
-### Greenhouse
-Public jobs API at `boards-api.greenhouse.io` — no rate limit on public endpoints.
-
-### Lever
-Public postings API — no rate limit on public endpoints.
-
-### Ashby
-Public job-board API at `api.ashbyhq.com` — no rate limit on public endpoints.
-
-### Adzuna
-Job aggregator. Register at [developer.adzuna.com](https://developer.adzuna.com)
-for a free API key — 250 requests/day on the free tier.
-
----
-
-## Project Structure
-
-```
-talentscope/
-├── .github/workflows/ci.yml           # GitHub Actions CI
-├── alembic/versions/                  # 5 migrations: schema → embeddings → clustering → posting panel → task observability
-├── app/
-│   ├── main.py                        # FastAPI entrypoint — /health, /ready, /metrics
-│   ├── config.py                      # Pydantic settings — DB pool, HNSW tuning, etc.
-│   ├── database.py                    # SQLAlchemy engine + session (pooled)
-│   ├── models.py                      # ORM: postings, panel tables, task_executions, failed_tasks
-│   ├── observability.py               # Prometheus metrics + OpenTelemetry tracing
-│   ├── api/                           # postings.py, analytics.py, qa.py
-│   ├── search/                        # encoder.py, hybrid.py, rag.py
-│   ├── ml/clustering.py               # KMeans + TF-IDF labels + bulk update
-│   ├── tasks/                         # celery_app.py, monitoring.py, redis_utils.py,
-│   │                                  #   greenhouse/lever/ashby/adzuna.py, scheduler.py,
-│   │                                  #   embedding.py, clustering.py, panel.py
-│   └── ingestion/                     # ingest.py, panel.py, hashing.py, normalizer.py,
-│                                       #   company_registry.py, deduplicator.py, skills.py
-├── dashboard/index.html               # Chart.js frontend
-├── config/target_companies.yml        # Monitored-company registry source of truth
-├── k8s/                               # Kubernetes manifests + apply.sh + scale-demo.sh
-├── terraform/                         # AWS IaC — network/iam/storage/database/secrets/monitoring
-├── observability/                     # Prometheus config + Grafana provisioning/dashboards
-├── k6/                                # load_test.js, seed script, run-stage.sh
-├── docs/                              # db-engineering.md, observability.md, kubernetes.md, terraform.md
-├── evals/                             # benchmark.json, load-test.md, k8s-scaling.md, results.md
-├── scripts/                           # benchmark.py, db_engineering_report.py, log_application.py
-├── tests/                             # 153 test functions, 15 files
-├── docker-compose.yml                 # postgres, redis, api, worker, beat, prometheus, grafana, cadvisor
-├── docker-compose.loadtest*.yml       # k6 test overlays
-├── Dockerfile / .dockerignore
-└── requirements.txt
-```
+Sources are the Greenhouse, Lever and Ashby job board APIs and the Adzuna aggregator; tracked companies live in [`config/target_companies.yml`](config/target_companies.yml). The demo corpus is generated rather than scraped, so the project runs without live third-party APIs.
