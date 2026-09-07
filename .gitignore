@@ -28,3 +28,12 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/terraform.tfvars
 terraform/*.tfplan
+
+# Generated at deploy time; contains generated passwords
+.deploy-state
+
+# Local database dumps (uploaded to S3 by scripts/backup_db.sh)
+backups/
+
+# OTel collector trace output (bind-mounted by docker-compose.deploy.yml)
+observability/traces/

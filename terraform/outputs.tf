@@ -34,3 +34,8 @@ output "db_endpoint" {
   value       = var.enable_rds ? aws_db_instance.postgres[0].endpoint : "enable_rds=false — no RDS instance provisioned, see database.tf"
   description = "Only meaningful when enable_rds = true."
 }
+
+output "backups_bucket" {
+  value       = aws_s3_bucket.backups.bucket
+  description = "Target for scripts/backup_db.sh; source for scripts/restore_db.sh."
+}

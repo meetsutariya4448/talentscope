@@ -10,6 +10,24 @@ data:
   # api/worker/beat comments for why that distinction matters).
   DATABASE_URL: "postgresql://talentscope:talentscope@postgres:5432/talentscope"
   REDIS_URL: "redis://redis:6379/0"
+
+  # Pin torch's intra-op thread pool to the CPU limit. Both the api and worker
+  # containers are capped at `cpu: "1"` (20-api.yaml, 21-worker.yaml), but a
+  # cgroup quota is invisible to os.cpu_count() — torch sizes its pool from the
+  # NODE's core count and would start one thread per node core inside a
+  # one-core budget, then spend that budget context-switching between threads
+  # that cannot run in parallel.
+  #
+  # Measured on compose at an identical 2-CPU budget with ingestion active,
+  # across 10 alternating trials with the dataset reset before each
+  # (evals/thread-ab.md): pinning to 1 gave 4.8x the API throughput
+  # (100.1 vs 20.7 req/s median), 13.9x better p95 (665ms vs 9239ms) and 5.3x
+  # the embedding throughput. Both tiers improved; nothing was traded, and the
+  # two groups did not overlap. The ratio here is worse than that test, not
+  # better, because the limit is 1 CPU rather than 2.
+  OMP_NUM_THREADS: "1"
+  TORCH_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
   # PROMETHEUS_MULTIPROC_DIR deliberately NOT here — it's worker-only (see
   # 21-worker.yaml's own env:). Setting it here too broke the api pods: with
   # the var present but no matching emptyDir mounted, prometheus_client's

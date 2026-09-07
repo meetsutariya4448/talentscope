@@ -13,13 +13,17 @@ import json
 import logging
 import time
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 # --- tuneable constants ---
 N_SOURCES   = 8       # postings retrieved per question (each ~50 tokens)
 CACHE_TTL   = 3600    # seconds; job market intel doesn't need sub-hour freshness
 CACHE_PREFIX = "rag:v1:"
-GROQ_MODEL  = "llama-3.1-8b-instant"
+# Default lives in app/config.py (GROQ_MODEL env var). Kept as a module
+# attribute so existing imports and tests still resolve it.
+GROQ_MODEL  = settings.groq_model
 MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
 
 SYSTEM_PROMPT = (
@@ -134,12 +138,20 @@ def answer_question(
     mode: str = "hybrid",
     redis_client=None,
     groq_api_key: str = "",
+    llm_gate=None,
 ) -> dict:
     """
-    Return {answer, sources, cached, latency_ms} (and optionally model/error).
+    Return {answer, sources, cached, latency_ms} (and optionally model/error/degraded).
 
     - redis_client: a redis.Redis instance or None (cache is skipped when None).
     - groq_api_key: if empty, retrieval still runs but answer is None + error key set.
+    - llm_gate: optional zero-arg callable consulted immediately before the
+      billed provider call, returning an object with `.allowed` and `.outcome`.
+      It is invoked *after* the cache lookup and *after* retrieval, and only on
+      the path that actually spends money — so a cache hit never consumes
+      budget, which it would if the check sat at the top of the request. When
+      it declines, retrieval results are still returned, with `degraded` set to
+      its outcome, rather than the request failing.
     """
     t0 = time.monotonic()
 
@@ -202,7 +214,19 @@ def answer_question(
             "latency_ms": round((time.monotonic() - t0) * 1000),
         }
 
-    # --- 4. LLM call ---
+    # --- 4. Spend gate: the last point before this costs money ---
+    if llm_gate is not None:
+        decision = llm_gate()
+        if not decision.allowed:
+            return {
+                "answer":     None,
+                "sources":    postings,
+                "cached":     False,
+                "degraded":   decision.outcome,
+                "latency_ms": round((time.monotonic() - t0) * 1000),
+            }
+
+    # --- 5. LLM call ---
     context  = _build_context(postings)
     user_msg = f"Context (job postings):\n{context}\n\nQuestion: {question}"
 

@@ -66,6 +66,12 @@ spec:
           # cluster despite the nodes having capacity for the actual usage.
           resources:
             requests: { cpu: "250m", memory: "512Mi" }
+            # 1Gi is enough only because --concurrency=1: each prefork child
+            # loads its own full copy of the model, measured at 380-420 MB RSS
+            # on 2026-09-07 (higher than the ~395Mi noted below, and higher
+            # than the ~280 MB previously assumed). Raising concurrency here
+            # without raising this limit gets the pool OOM-killed mid-task —
+            # budget roughly 450 MB per child plus ~150 MB for the parent.
             limits: { cpu: "1", memory: "1Gi" }
           # timeoutSeconds bumped from the 1s default: found under real load
           # (concurrency=4 running actual sentence-transformers inference)

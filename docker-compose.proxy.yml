@@ -1,0 +1,55 @@
+# Adds a second api replica behind an nginx front proxy, so that "a cold
+# process is not sent search traffic" is something you can observe rather
+# than something the code merely claims.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml \
+#                  -f docker-compose.proxy.yml up -d --wait
+#   curl localhost:8080/postings/?q=python\&mode=vector
+#   docker compose restart api2     # watch: no client-visible failure
+#
+# Pair it with docker-compose.loadtest.yml — --reload forces a single
+# process and adds a filesystem watcher, neither of which belongs in a
+# measurement of restart behaviour.
+
+services:
+  # Same image and configuration as `api`; a distinct service name rather
+  # than `--scale api=2` because nginx OSS resolves each upstream hostname
+  # once at startup and would otherwise only ever see one replica.
+  api2:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://talentscope:talentscope@postgres:5432/talentscope
+      REDIS_URL: redis://redis:6379/0
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready', timeout=3).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${PROXY_HOST_PORT:-8080}:80"
+    volumes:
+      - ./observability/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    # Deliberately NOT `condition: service_healthy` on the backends: nginx
+    # must be up and serving *before* they are ready, otherwise the cold
+    # window this file exists to observe is over before the proxy starts.
+    depends_on:
+      - api
+      - api2
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/nginx-health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

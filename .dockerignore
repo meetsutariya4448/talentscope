@@ -20,6 +20,18 @@ k8s/
 observability/
 docs/
 evals/
+# ...except the demo fixture, which scripts/seed_demo.py reads at runtime
+# inside the container. A "predictable demo" whose corpus is not in the image
+# is not predictable.
+!evals/fixtures/
+!evals/fixtures/demo_postings.json
 README.md
+*.md
+# terraform/.terraform holds the downloaded provider plugin binaries — 648 MB
+# of hashicorp/aws for this repo, which was silently landing in the image via
+# `COPY . .` and dwarfing the application itself. Nothing under terraform/ is
+# read at runtime; it is infrastructure definition, not app code.
+terraform/
+.github/
 # NOTE: dashboard/ is intentionally NOT excluded — app/main.py serves it as
 # static files at runtime (StaticFiles mount at /dashboard).

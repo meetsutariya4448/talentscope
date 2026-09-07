@@ -1,0 +1,269 @@
+# The deployment stack. Standalone — use it INSTEAD of docker-compose.yml,
+# not layered on top of it:
+#
+#   docker compose -f docker-compose.deploy.yml up -d --wait
+#
+# It is a separate file rather than an overlay because the two differ in ways
+# an override cannot express. Compose merges `volumes` and `ports` by appending,
+# so an overlay can add a bind mount but never remove one — and removing the
+# `.:/app` bind mount is the whole point here. What runs must be the contents
+# of an immutable, tagged image, or "rollback" means nothing: rolling back to
+# an older tag while the host directory is mounted over /app would still run
+# today's code.
+#
+# Differences from docker-compose.yml (dev):
+#   - image: talentscope:${TALENTSCOPE_TAG}, never `build:` and never `latest`
+#   - no source bind mounts
+#   - no --reload (single-process reloader, filesystem watcher)
+#   - explicit CPU/memory budgets from evals/cpu-budget.md
+#   - hardened containers: read-only root, all capabilities dropped
+#   - Alertmanager and the OTel collector present, so incidents produce signal
+#
+# Deployed by scripts/deploy.sh, rolled back by scripts/rollback.sh, removed by
+# scripts/teardown.sh.
+
+# Its own compose project, so the deploy stack's volumes and containers never
+# collide with the dev stack's. Without this both files share the project name
+# "talentscope" and therefore the same postgres_data volume — and because
+# POSTGRES_PASSWORD only initialises a database on the volume's *first* use, a
+# deploy that generates a fresh password then fails to authenticate against a
+# volume the dev stack created with the old one. That is a confusing outage to
+# debug, and separate projects remove the possibility.
+name: talentscope-deploy
+
+x-app-image: &app-image
+  # No default. An unset tag must fail loudly rather than silently resolving to
+  # something like `talentscope:` or the last thing built.
+  image: talentscope:${TALENTSCOPE_TAG:?TALENTSCOPE_TAG must be set - use scripts/deploy.sh}
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://talentscope:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/talentscope
+  REDIS_URL: redis://redis:6379/0
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+  ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_SERVICE_NAME: talentscope
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  # Pinned to the CPU budget, not left to torch's os.cpu_count() default.
+  # Measured: at an identical 2-CPU limit, OMP=10 cut API throughput from
+  # 100 to 15-19 req/s and p95 from 0.72s to over 10s (evals/cpu-budget.md).
+  OMP_NUM_THREADS: ${OMP_NUM_THREADS:-1}
+  TORCH_NUM_THREADS: ${OMP_NUM_THREADS:-1}
+  MKL_NUM_THREADS: ${OMP_NUM_THREADS:-1}
+  EMBED_RATE_LIMIT: ${EMBED_RATE_LIMIT-300/m}
+  QA_LLM_ENABLED: ${QA_LLM_ENABLED:-true}
+  QA_DAILY_BUDGET: ${QA_DAILY_BUDGET:-200}
+  QA_RATE_LIMIT_PER_MIN: ${QA_RATE_LIMIT_PER_MIN:-5}
+  GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
+
+x-hardening: &hardening
+  # The image already runs as uid 10001 (Dockerfile). These close the rest:
+  # no privilege escalation, no capabilities at all, and an immutable root
+  # filesystem with explicit tmpfs for the few paths written at runtime.
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: talentscope
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: talentscope
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Deliberately not published to the host at all. Nothing outside the
+    # compose network needs it — the scripts reach it with `docker compose
+    # exec` — and an unpublished database cannot be reached from the host's
+    # network at all, which is the stronger position. (Writing this as an
+    # optional publish was worse than useless: with the variable unset it
+    # still published 5432 on a random host port.)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U talentscope"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    command: redis-server --save 60 1 --appendonly no
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    <<: *app-image
+    command: alembic upgrade head
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: [*app-image, *hardening]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    environment:
+      <<: *app-env
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      # /ready, not /health: /health is 200 the moment uvicorn binds, which is
+      # precisely the window where the embedding model is not yet loaded and
+      # vector search would be served cold. See evals/coldstart.md.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready', timeout=3).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPUS:-2.0}"
+          memory: "${API_MEMORY:-2g}"
+    restart: unless-stopped
+
+  worker:
+    <<: [*app-image, *hardening]
+    # mkdir -p, not just the rm the dev file uses. Here /tmp is a tmpfs mounted
+    # over the image's filesystem (required by read_only: true), so the
+    # /tmp/prometheus_multiproc directory the Dockerfile creates is hidden and
+    # the tmpfs starts empty — prometheus_client then dies on its first metric
+    # with "No such file or directory: .../gauge_mostrecent_8.db" and the
+    # worker crash-loops. The dev stack does not hit this because it mounts a
+    # named volume there, which Docker seeds from the image.
+    command: sh -c "mkdir -p /tmp/prometheus_multiproc && rm -rf /tmp/prometheus_multiproc/* && celery -A app.tasks.celery_app worker --loglevel=info --concurrency=${WORKER_CONCURRENCY:-2} -Q ingestion,embedding,maintenance"
+    environment:
+      <<: *app-env
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+    read_only: true
+    tmpfs:
+      # The multiprocess metric files must survive for the life of the
+      # container but never need to outlive it.
+      - /tmp
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "${WORKER_CPUS:-2.0}"
+          # ~450 MB per prefork child (measured 380-420 MB RSS) plus the
+          # parent. Under-sizing this OOM-kills the pool mid-task.
+          memory: "${WORKER_MEMORY:-1400m}"
+    restart: unless-stopped
+
+  beat:
+    <<: [*app-image, *hardening]
+    command: celery -A app.tasks.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler --schedule /var/lib/celery/celerybeat-schedule
+    environment:
+      <<: *app-env
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      # Beat's shelve file must persist across restarts, or every restart
+      # re-fires whatever was due.
+      - beat_schedule:/var/lib/celery
+    stop_grace_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512m"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "${PROMETHEUS_HOST_PORT:-9090}:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+      - worker
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "${ALERTMANAGER_HOST_PORT:-9093}:9093"
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+      # Bind mount, not a named volume. The collector image runs as uid 10001,
+      # and Docker creates a named volume for a path absent from the image
+      # owned by root — so the file exporter died on "open
+      # /traces/traces.jsonl: permission denied" and the container crash-looped.
+      # A host directory created by scripts/deploy.sh with the right ownership
+      # avoids that, and has the side benefit that the traces are readable from
+      # the host for an incident write-up without exec'ing into anything.
+      - ./observability/traces:/traces
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "${GRAFANA_HOST_PORT:-3000}:3000"
+    environment:
+      # Anonymous access off and a required admin password, unlike the dev
+      # file which enables anonymous viewing with a hardcoded `admin`.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  alertmanager_data:
+  grafana_data:
+  beat_schedule:

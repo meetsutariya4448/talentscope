@@ -1,0 +1,158 @@
+# Alert rules. Before this file, prometheus.yml had no `rule_files` and no
+# `alerting` block at all — Grafana could draw the metrics but nothing could
+# ever fire, so there was no signal to respond to during an incident.
+#
+# Every expression below is built on a metric that already exists in
+# app/observability.py. Thresholds are set from measured behaviour
+# (evals/cpu-budget.md, evals/coldstart.md), not guessed.
+
+groups:
+  - name: talentscope-availability
+    rules:
+      - alert: ApiDown
+        expr: up{job="talentscope-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "API is not being scraped"
+          description: "Prometheus cannot reach api:8000/metrics. The process is gone, wedged, or the network path is broken."
+
+      - alert: EmbeddingModelNotReady
+        expr: embedding_model_ready == 0
+        # 5m, not 1m: a normal restart takes ~2.5s to warm (evals/coldstart.md),
+        # and a rolling deploy legitimately shows 0 briefly. Five minutes means
+        # warmup genuinely failed rather than merely being in progress.
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Embedding model has not warmed for 5 minutes"
+          description: "/ready is returning 503 and vector/hybrid search is refusing traffic. Expected warmup is ~2.5s with the model baked into the image."
+
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.05
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Over 5% of requests are returning 5xx"
+          description: "{{ $value | humanizePercentage }} of requests are failing."
+
+      - alert: ApiLatencyP95High
+        # 2s matches k6/load_test.js's own p(95)<2000 threshold, so the alert
+        # and the load test agree on what "too slow" means.
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "API p95 latency above 2s"
+          description: "p95 is {{ $value }}s. Measured baseline under a 2-CPU budget with ingestion active is 0.72s (evals/cpu-budget.md); sustained values near 10s are the signature of thread oversubscription."
+
+  - name: talentscope-data
+    rules:
+      # Every expression in this group is scoped to job="talentscope-worker".
+      # postings_total is refreshed only on the worker's scrape — the api
+      # deliberately does not refresh worker-owned pull metrics
+      # (app/observability.py's /metrics comment), so it publishes a permanent
+      # postings_total=0 series that has nothing to do with the corpus.
+      # Unqualified, `postings_total == 0` matched that phantom and would have
+      # fired PostingsCorpusEmpty continuously against a perfectly healthy
+      # database — an alert that is always firing is an alert nobody reads.
+      - alert: PostingsCorpusEmpty
+        expr: postings_total{job="talentscope-worker"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "The postings table is empty"
+          description: "Search will return nothing while every connection check stays green. This is the data-loss signal that /ready cannot give you — restore from a backup (scripts/restore_db.sh --latest)."
+
+      - alert: PostingsCorpusShrank
+        # A sudden large drop is a stronger signal than emptiness: it catches
+        # partial deletion, which is both more likely and easier to miss.
+        expr: |
+          postings_total{job="talentscope-worker"}
+            < 0.5 * max_over_time(postings_total{job="talentscope-worker"}[1h])
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Postings corpus lost more than half its rows in the last hour"
+          description: "Now {{ $value }} rows. Ingestion does not delete; investigate before it is overwritten by a backup cycle."
+
+      - alert: EmbeddingCoverageLow
+        expr: |
+          postings_embedded{job="talentscope-worker"}
+            / clamp_min(postings_total{job="talentscope-worker"}, 1) < 0.8
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Under 80% of postings have embeddings"
+          description: "Vector and hybrid search silently degrade toward FTS-only recall as coverage falls."
+
+  - name: talentscope-ingestion
+    rules:
+      - alert: CeleryNoActiveWorkers
+        expr: celery_active_workers{job="talentscope-worker"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "No Celery workers responding to heartbeats"
+          description: "Ingestion, embedding and maintenance queues are all stalled."
+
+      - alert: CeleryQueueBacklog
+        # 1000 is well above the 1400-task backlog that drains in ~48s at the
+        # measured 28/s (evals/cpu-budget.md), sustained for 15m — so this is
+        # a queue that is not draining, not merely a queue that is busy.
+        expr: celery_queue_depth{job="talentscope-worker"} > 1000
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Celery queue {{ $labels.queue }} has over 1000 pending tasks"
+          description: "Depth {{ $value }} and not draining. Measured drain rate is ~28 embeddings/s with 2 worker CPUs and OMP_NUM_THREADS=1."
+
+      - alert: CeleryTaskFailureRate
+        expr: |
+          sum(rate(celery_task_total{state="FAILURE"}[10m]))
+            / clamp_min(sum(rate(celery_task_total[10m])), 0.001) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Over 10% of Celery tasks are failing"
+
+      - alert: IngestionLagHigh
+        # Beat dispatches each source every 4-6 hours, so 12h without a
+        # successful run means two or more scheduled cycles were missed.
+        expr: ingestion_lag_seconds{job="talentscope-worker"} > 43200
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "No successful ingestion from {{ $labels.source }} in 12 hours"
+
+  - name: talentscope-spend
+    rules:
+      - alert: QaBudgetExhausted
+        expr: qa_budget_remaining == 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "Today's Q&A provider budget is spent"
+          description: "/qa/ask is serving retrieval-only responses with degraded=budget_exhausted. This is the cap working, not an outage — raise QA_DAILY_BUDGET only deliberately."
+
+      - alert: QaBudgetBurningFast
+        # Catches the spend *before* it is gone: 200 calls/day is ~0.14/min,
+        # so 1/min sustained for 10 minutes is roughly 7x the intended rate.
+        expr: rate(qa_llm_calls_total[10m]) * 60 > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Q&A provider calls running well above the daily budget's pace"
+          description: "{{ $value }} calls/min. At the default 200/day the sustainable rate is about 0.14/min."
+
+      - alert: QaBudgetCounterUnavailable
+        expr: increase(qa_requests_total{outcome="counter_unavailable"}[10m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Q&A spend counter unavailable — provider calls are being refused"
+          description: "Redis is down, so the daily budget cannot be counted and the endpoint is failing closed by design (app/search/budget.py). Q&A generation is off until Redis returns."

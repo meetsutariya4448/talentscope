@@ -52,3 +52,29 @@ def client(test_engine, monkeypatch):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_startup_warmup(monkeypatch):
+    """Keep the suite behaving as it did before the warmup existed.
+
+    Two separate things are switched off:
+
+      * the startup warmup thread, which would otherwise load a ~90 MB model
+        once per TestClient construction, including for the many tests that
+        never touch vector search;
+      * the readiness gate, by pre-setting the encoder's ready flag, so the
+        existing vector/hybrid tests keep exercising the lazy-load path they
+        were written against rather than getting a 503 from
+        require_model_ready().
+
+    tests/test_ready.py drives the flag explicitly inside its test bodies,
+    which runs after this fixture and so overrides it.
+    """
+    from app.config import settings
+    from app.search import encoder
+
+    monkeypatch.setattr(settings, "embedding_warmup_enabled", False)
+    encoder._ready.set()
+    yield
+    encoder._ready.clear()

@@ -3,12 +3,21 @@
 Search latency benchmark for TalentScope.
 
 Measures wall-clock p50/p95/p99 latency for FTS, vector, and hybrid search
-against the live database (no HTTP overhead).  Results are saved to
-evals/benchmark.json for traceability.
+against the live database (no HTTP overhead).
+
+Each run is written to its own file under evals/benchmark-runs/, named by
+timestamp and run name. This used to be a single hardcoded evals/benchmark.json,
+which meant every run silently destroyed the previous one: the documented
+`--repeats 100` invocation overwrote the 50-repeat result, and two runs under
+different conditions could not be compared because only the last one survived.
+evals/benchmark.json is still written, as a copy of the most recent run, because
+README.md and evals/results.md both reference it.
 
 Usage:
     cd /path/to/talentscope
-    python scripts/benchmark.py [--repeats N]
+    python scripts/benchmark.py --run-name baseline [--repeats N]
+    python scripts/benchmark.py --run-name omp1-api2cpu --repeats 100
+    python scripts/benchmark.py --run-name adhoc --out /tmp/somewhere.json
 
 Requirements:
     - DATABASE_URL set in .env or environment
@@ -16,7 +25,10 @@ Requirements:
 """
 import argparse
 import json
+import os
 import platform
+import re
+import socket
 import statistics
 import subprocess
 import sys
@@ -206,18 +218,133 @@ def corpus_size() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Run identity
+# ---------------------------------------------------------------------------
+
+RUN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def git_sha() -> str | None:
+    """Short SHA of the tree the numbers were produced from, or None."""
+    try:
+        sha = subprocess.check_output(
+            ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return None
+    return sha or None
+
+
+def git_dirty() -> bool | None:
+    """True when the working tree had uncommitted changes at run time.
+
+    Recorded because a run's git SHA is only meaningful evidence if the tree
+    actually matched it.
+    """
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(ROOT), "status", "--porcelain"],
+            stderr=subprocess.DEVNULL,
+        ).decode()
+    except Exception:
+        return None
+    return bool(out.strip())
+
+
+def collect_run_identity(run_name: str, repeats: int, started_at: datetime) -> dict:
+    """Everything needed to tell two runs apart after the fact.
+
+    The old format recorded `run_at` inside the payload but wrote every run to
+    the same filename, so the timestamp described a file that had already been
+    replaced. The condition a run was executed under — thread limits, CPU
+    budget, which code — was recorded nowhere at all, which is what made the
+    surviving k6 artifacts ambiguous (see evals/k6-runs/README.md).
+    """
+    return {
+        "run_id": f"{started_at:%Y%m%dT%H%M%SZ}-{run_name}",
+        "run_name": run_name,
+        "run_at": started_at.isoformat(),
+        "git_sha": git_sha(),
+        "git_dirty": git_dirty(),
+        "hostname": socket.gethostname(),
+        "repeats": repeats,
+        "warmup_per_query": WARMUP,
+        "queries": len(QUERIES),
+        # The thread/CPU envelope the measurement ran inside. Thread
+        # oversubscription is the known bottleneck for this workload
+        # (evals/load-test.md), so a latency number without these is not
+        # comparable to another latency number.
+        "cpu_budget": {
+            "os_cpu_count": os.cpu_count(),
+            "OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS"),
+            "TORCH_NUM_THREADS": os.environ.get("TORCH_NUM_THREADS"),
+            "MKL_NUM_THREADS": os.environ.get("MKL_NUM_THREADS"),
+            "torch_num_threads": _torch_threads(),
+        },
+    }
+
+
+def _torch_threads() -> int | None:
+    """What torch actually settled on, which is not always what was requested."""
+    try:
+        import torch
+        return torch.get_num_threads()
+    except Exception:
+        return None
+
+
+def resolve_destination(args, run_name: str, started_at: datetime) -> Path:
+    if args.out:
+        return Path(args.out).expanduser().resolve()
+    return ROOT / "evals" / "benchmark-runs" / f"{started_at:%Y%m%dT%H%M%SZ}-{run_name}.json"
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Search latency benchmark. Every run is written to its own file."
+    )
     parser.add_argument("--repeats", type=int, default=DEFAULT_REPEATS,
                         help=f"Valid samples per query per mode (default {DEFAULT_REPEATS})")
+    parser.add_argument("--run-name", default="unnamed",
+                        help="Short label for the condition under test, e.g. 'baseline' "
+                             "or 'omp1-api2cpu'. Becomes part of the filename and the "
+                             "run_id. Allowed: letters, digits, dot, dash, underscore.")
+    parser.add_argument("--out", default=None,
+                        help="Explicit output path, overriding the default "
+                             "evals/benchmark-runs/<timestamp>-<run-name>.json")
+    parser.add_argument("--force", action="store_true",
+                        help="Overwrite the destination if it already exists. Without "
+                             "this a collision is an error rather than silent data loss.")
+    parser.add_argument("--no-latest", action="store_true",
+                        help="Skip refreshing evals/benchmark.json from this run.")
     args = parser.parse_args()
+
+    run_name = args.run_name.strip()
+    if not RUN_NAME_RE.match(run_name):
+        parser.error(
+            f"--run-name {run_name!r} must start alphanumeric and contain only "
+            "letters, digits, '.', '-', '_' (it becomes a filename)"
+        )
+
+    started_at = datetime.now(timezone.utc)
+    dest = resolve_destination(args, run_name, started_at)
+    if dest.exists() and not args.force:
+        parser.error(
+            f"{dest} already exists. Pass --force to overwrite, or use a different "
+            "--run-name. Refusing to silently replace an existing result."
+        )
+
     repeats = args.repeats
     n_total = len(QUERIES) * repeats
 
     print("TalentScope — search latency benchmark")
+    print(f"  run     : {started_at:%Y%m%dT%H%M%SZ}-{run_name}")
+    print(f"  dest    : {dest}")
     print(f"  queries : {len(QUERIES)}")
     print(f"  repeats : {repeats}  (+ {WARMUP} warm-up per query, discarded)")
     print(f"  samples : {n_total} per mode")
@@ -264,8 +391,13 @@ def main() -> None:
     env = collect_env()
     print(f"\nEnvironment: {env['cpu']}  |  {env['ram_gb']} GB RAM  |  {env['os']}")
 
+    run = collect_run_identity(run_name, repeats, started_at)
+
     out = {
-        "run_at":    datetime.now(timezone.utc).isoformat(),
+        "run":       run,
+        # run_at is kept at the top level for backward compatibility with
+        # evals/results.md and the existing evals/benchmark.json consumers.
+        "run_at":    run["run_at"],
         "corpus":    corpus_size(),
         "config":    {"queries": len(QUERIES), "repeats": repeats, "warmup": WARMUP},
         "env":       env,
@@ -273,9 +405,16 @@ def main() -> None:
         "search":    mode_results,
     }
 
-    dest = ROOT / "evals" / "benchmark.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(out, indent=2))
-    print(f"Saved → {dest}")
+    print(f"\nSaved → {dest}")
+
+    # evals/benchmark.json is now a pointer to the newest run rather than the
+    # only copy of it, so an accidental re-run can no longer destroy history.
+    if not args.no_latest:
+        latest = ROOT / "evals" / "benchmark.json"
+        latest.write_text(json.dumps(out, indent=2))
+        print(f"Latest → {latest}  (copy of {run['run_id']})")
 
 
 if __name__ == "__main__":

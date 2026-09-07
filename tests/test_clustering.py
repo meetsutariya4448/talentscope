@@ -223,10 +223,15 @@ def test_clusters_endpoint_no_data(client):
 
 
 def test_clusters_run_endpoint(client, db):
-    """POST /analytics/clusters/run runs clustering and returns summary."""
+    """POST /analytics/clusters/run?sync=true runs clustering and returns summary.
+
+    sync=true is now opt-in: the default dispatches to the worker, because
+    running a full-corpus silhouette grid search inline on a public,
+    unauthenticated endpoint let a caller occupy a request thread for minutes.
+    """
     _seed_postings_with_embeddings(db, n=25, n_clusters=5, seed=6)
 
-    resp = client.post("/analytics/clusters/run?k=5")
+    resp = client.post("/analytics/clusters/run?k=5&sync=true")
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["k"] == 5
@@ -237,7 +242,7 @@ def test_clusters_run_endpoint(client, db):
 def test_clusters_endpoint_after_run(client, db):
     """After a run with k=5, GET /analytics/clusters reflects the persisted k."""
     _seed_postings_with_embeddings(db, n=25, n_clusters=5, seed=7)
-    run_resp = client.post("/analytics/clusters/run?k=5")
+    run_resp = client.post("/analytics/clusters/run?k=5&sync=true")
     assert run_resp.status_code == 200, run_resp.text
 
     resp = client.get("/analytics/clusters")
@@ -248,3 +253,36 @@ def test_clusters_endpoint_after_run(client, db):
     for c in data["clusters"]:
         assert c["size"] > 0
         assert isinstance(c["top_skills"], list)
+
+
+def test_clusters_run_dispatches_asynchronously_by_default(client, db, monkeypatch):
+    """The default must not do the work on the request thread.
+
+    Inline, this endpoint ran KMeans with a silhouette grid search over
+    k=5..15 (n_init=10) across every embedded posting, with no timeout — the
+    same work the Celery task guards with time_limit=1200 precisely because it
+    can exceed ten minutes. Unauthenticated callers could exhaust the API's
+    threadpool at no cost to themselves.
+    """
+    dispatched = {}
+
+    class _Result:
+        id = "task-abc123"
+
+    def fake_delay(k=None):
+        dispatched["k"] = k
+        return _Result()
+
+    monkeypatch.setattr("app.tasks.clustering.run_clustering_task.delay", fake_delay)
+
+    def fail_if_called(*_a, **_k):
+        raise AssertionError("run_clustering ran inline on the request thread")
+
+    monkeypatch.setattr("app.ml.clustering.run_clustering", fail_if_called)
+
+    resp = client.post("/analytics/clusters/run?k=7")
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["task_id"] == "task-abc123"
+    assert dispatched["k"] == 7

@@ -81,6 +81,53 @@ INGESTION_LAG_SECONDS = Gauge(
     multiprocess_mode="mostrecent",
 )
 
+# multiprocess_mode="livemin": readiness is a property of *every* live
+# process, not the most recent one to report — a worker whose second prefork
+# child is still loading the model is not ready, however warm the first child
+# is. "livemin" takes the minimum across processes still alive, and dead
+# children are already cleaned up by mark_worker_process_dead() below, so a
+# terminated child cannot pin this at 0 forever. The api runs single-process
+# (no PROMETHEUS_MULTIPROC_DIR, see k8s/01-configmap.yaml) where the mode is
+# inert and this is just a plain 0/1 gauge.
+EMBEDDING_MODEL_READY = Gauge(
+    "embedding_model_ready",
+    "1 once this process has loaded the embedding model and completed a real encode",
+    multiprocess_mode="livemin",
+)
+EMBEDDING_MODEL_LOAD_SECONDS = Gauge(
+    "embedding_model_load_seconds",
+    "Seconds the embedding-model warmup took in this process",
+    multiprocess_mode="livemax",
+)
+
+# Paid-LLM spend visibility. QA_LLM_CALLS_TOTAL counts only calls that actually
+# reached the provider, so it is a billing proxy; QA_REQUESTS_TOTAL's `outcome`
+# label separates those from cache hits and from requests the budget or rate
+# limiter turned away (app/search/budget.py).
+QA_LLM_CALLS_TOTAL = Counter(
+    "qa_llm_calls_total", "Q&A requests that resulted in a billed provider call",
+)
+QA_REQUESTS_TOTAL = Counter(
+    "qa_requests_total", "Q&A requests by how they were served", ["outcome"],
+)
+QA_BUDGET_REMAINING = Gauge(
+    "qa_budget_remaining", "Provider calls left in today's Q&A budget",
+    multiprocess_mode="mostrecent",
+)
+
+# Corpus size. Needed because "the database is up" and "the data is still
+# there" are different failures: a truncated postings table leaves every
+# connection check green while search silently returns nothing. Refreshed on
+# the worker's scrape alongside the other pull metrics.
+POSTINGS_TOTAL = Gauge(
+    "postings_total", "Rows in the postings table",
+    multiprocess_mode="mostrecent",
+)
+POSTINGS_EMBEDDED = Gauge(
+    "postings_embedded", "Postings with a non-null embedding",
+    multiprocess_mode="mostrecent",
+)
+
 _QUEUES = ("ingestion", "embedding", "maintenance")
 
 
@@ -159,6 +206,34 @@ def _refresh_pull_metrics() -> None:
     _refresh_queue_depth()
     _refresh_active_workers()
     _refresh_ingestion_lag()
+    _refresh_corpus_size()
+
+
+def _refresh_corpus_size() -> None:
+    """One cheap aggregate query per scrape.
+
+    Deliberately counts rather than estimating from pg_class.reltuples: the
+    point of this metric is to notice the corpus disappearing, and reltuples
+    is only as fresh as the last ANALYZE, which is exactly when it would lie.
+    """
+    from sqlalchemy import text
+
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        total, embedded = db.execute(text(
+            "SELECT count(*), count(embedding) FROM postings"
+        )).one()
+        POSTINGS_TOTAL.set(total)
+        POSTINGS_EMBEDDED.set(embedded)
+    except Exception:
+        # Leave the previous value in place: a failed scrape query is a
+        # database problem, which the DB alerts cover, and zeroing here would
+        # fire the corpus-empty alert for the wrong reason.
+        logger.warning("Failed to refresh corpus size metrics", exc_info=True)
+    finally:
+        db.close()
 
 
 def _refresh_queue_depth() -> None:

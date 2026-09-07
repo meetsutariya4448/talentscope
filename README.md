@@ -28,10 +28,10 @@ Full narrative and methodology for each behind the linked doc.
 | Area | Finding |
 |---|---|
 | **Ingestion resilience** | Idempotency proven directly (`tests/test_idempotency.py` simulates duplicate task delivery); dead-letter store + explicit task-state tracking; a real backpressure bug fixed (duplicate embedding dispatch under overlapping beat firings) |
-| **Postgres** ([docs/db-engineering.md](docs/db-engineering.md)) | HNSW vs. brute-force vector search: **8.5x**. GIN vs. seq scan: **5.9x**. A methodology bug in the `ef_search` recall sweep caught and fixed *before* trusting the numbers |
+| **Postgres** ([docs/db-engineering.md](docs/db-engineering.md)) | HNSW vs. brute-force vector search: **8.6x**. GIN vs. seq scan: **5.9x**. A methodology bug in the `ef_search` recall sweep caught and fixed *before* trusting the numbers |
 | **Observability** ([docs/observability.md](docs/observability.md)) | Prometheus + Grafana + OpenTelemetry, validated with `curl` against every real endpoint — not just "the container started." One pre-existing deployment bug found and fixed along the way (`.env`'s `localhost` defaults silently broke `docker-compose up`) |
 | **Kubernetes** ([docs/kubernetes.md](docs/kubernetes.md)) | Deployed to a real 3-node `kind` cluster. Docker image **9.01GB → 1.94GB** (found `sentence-transformers` silently pulling the CUDA build of torch on a deployment with no GPU). Worker throughput 2→4 replicas: **~2.5x**, real `sentence-transformers` inference, not a stand-in |
-| **Terraform** ([docs/terraform.md](docs/terraform.md)) | 34 resources applied against LocalStack, independently re-verified via the AWS CLI afterward. Confirmed directly (not assumed) which services are LocalStack Pro-only, and architected around it rather than writing untestable Terraform |
+| **Terraform** ([docs/terraform.md](docs/terraform.md)) | 38 resources applied against LocalStack, independently re-verified via the AWS CLI afterward. Confirmed directly (not assumed) which services are LocalStack Pro-only, and architected around it rather than writing untestable Terraform |
 | **Load testing** ([evals/load-test.md](evals/load-test.md)) | A real concurrency bug found and fixed at just 2 virtual users, before any capacity data was collected. Root-caused the actual bottleneck through controlled comparisons (worker paused vs. running; 1 vs. 4 uvicorn processes) down to CPU thread oversubscription — not the database, which was never the limiting factor |
 
 ---
@@ -289,7 +289,7 @@ three, so conversational queries don't zero out.
 
 ### Vector (Semantic)
 Query encoded with all-MiniLM-L6-v2 (384-dim, normalized). Nearest-neighbor
-search over pgvector's HNSW index (`<=>` cosine distance) — **8.5x faster**
+search over pgvector's HNSW index (`<=>` cosine distance) — **8.6x faster**
 than brute-force at 20k rows, measured (see
 [docs/db-engineering.md](docs/db-engineering.md)). Finds semantically
 similar postings even when exact keywords don't match (`"MLOps"` ↔ `"ML
@@ -393,30 +393,75 @@ alembic upgrade head
 pytest tests/ -v
 ```
 
-**93 tests**, run against a real Postgres+pgvector instance (no mocked DB):
+**153 test functions across 15 files**, run against a real Postgres+pgvector instance (no mocked DB):
 
 | File | Tests | Coverage |
 |---|---|---|
-| `tests/test_search.py` | 13 | FTS, vector, hybrid search; RRF unit tests |
-| `tests/test_qa.py` | 12 | RAG pipeline, Redis cache, citation validation |
+| `tests/test_qa.py` | 18 | RAG pipeline, Redis cache, citation validation |
+| `tests/test_budget.py` | 17 | Paid-LLM daily budget, per-client rate limit, fail-closed behaviour |
+| `tests/test_search.py` | 15 | FTS, vector, hybrid search; RRF unit tests |
+| `tests/test_scheduler.py` | 13 | Batch dispatch, Redis cursor restart-survival |
+| `tests/test_tasks.py` | 12 | Normalizers, skill extraction, task smoke |
 | `tests/test_panel.py` | 12 | Posting-panel survival tracking, resurrection, drift |
-| `tests/test_scheduler.py` | 11 | Batch dispatch, Redis cursor restart-survival |
-| `tests/test_clustering.py` | 10 | KMeans pipeline, TF-IDF labels, bulk update, API endpoints |
-| `tests/test_tasks.py` | 8 | Normalizers, skill extraction, task smoke |
-| `tests/test_monitoring.py` | 8 | Task-state tracking, dead-letter writes, heartbeats |
-| `tests/test_api.py` | 7 | All FastAPI endpoints |
-| `tests/test_idempotency.py` | 7 | Duplicate delivery, backpressure, dead-letter |
-| `tests/test_dedup.py` | 4 | Exact and fuzzy deduplication |
-| `tests/test_encoder.py` | 1 | Model-loading race under concurrent access |
+| `tests/test_monitoring.py` | 12 | Task-state tracking, dead-letter writes, heartbeats |
+| `tests/test_clustering.py` | 12 | KMeans pipeline, TF-IDF labels, bulk update, API endpoints |
+| `tests/test_api.py` | 11 | All FastAPI endpoints |
+| `tests/test_idempotency.py` | 10 | Duplicate delivery, backpressure, dead-letter |
+| `tests/test_ready.py` | 9 | Readiness gating: liveness vs. readiness, cold-model refusal |
+| `tests/test_dedup.py` | 4 | Cross-source fuzzy duplicate detection |
+| `tests/test_config.py` | 3 | Settings validation |
+| `tests/test_company_registry.py` | 3 | Target-company YAML loading |
+| `tests/test_encoder.py` | 1 | Encoder singleton under concurrent construction |
 
 ---
 
 ## Deployment
 
-**Kubernetes** ([above](#kubernetes)) is the primary deployment target —
-StatefulSet/Deployment/HPA/probes, deployed against a real cluster, not
-just written. **Terraform + LocalStack** ([above](#terraform--localstack))
-provisions the AWS-shaped infrastructure a real deployment would sit on.
+**docker-compose is the operated deployment target.** `docker-compose.deploy.yml`
+is a standalone stack (not an overlay) that runs an immutable, git-SHA-tagged
+image with no source bind mount, explicit CPU/memory budgets, hardened
+containers, and the full observability stack including Alertmanager and an
+OpenTelemetry collector.
+
+```bash
+bash scripts/deploy.sh                 # build + tag + deploy the current commit
+bash scripts/dc.sh ps                  # docker compose against the deployed stack
+bash scripts/backup_db.sh              # pg_dump -Fc | gzip -> S3, upload verified
+bash scripts/restore_db.sh --latest    # restore, verified against a row-count manifest
+bash scripts/rollback.sh               # back to the last verified-good image tag
+bash scripts/teardown.sh --dry-run     # then --yes to remove everything
+```
+
+What this deployment does, and why each piece is there:
+
+| Concern | Mechanism |
+|---|---|
+| **Immutable releases** | `talentscope:<git-sha>`, never `latest`. A dirty tree gets a content hash appended, so the same tag can never mean two different trees. Rollback is impossible without this. |
+| **Secrets** | Read from AWS Secrets Manager at deploy time (LocalStack by default), the same path `terraform/compute.tf`'s cloud-init uses. Postgres and Grafana passwords are generated, never committed. |
+| **Least privilege** | Non-root (uid 10001), read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`. IAM grants read/write on the backups bucket but deliberately **no `s3:DeleteObject`**. |
+| **Backups** | Versioned, encrypted, public-access-blocked S3 bucket with a lifecycle rule matching RDS's 7-day retention. Every backup ships a manifest of row counts; restore fails if they don't match. |
+| **Rollback** | `scripts/rollback.sh` reads the *running* image from the container, so a failed deploy rolls back to the last verified-good tag rather than one release too far. Recreates only app services — the data layer stays up. |
+| **Teardown** | `scripts/teardown.sh` removes compose stacks, Terraform resources, LocalStack, kind, images and generated files. Idempotent, `--dry-run` first. |
+| **Alerting** | 14 Prometheus rules across availability, data, ingestion and spend, wired to Alertmanager. Previously `prometheus.yml` had no `rule_files` at all, so nothing could ever fire. |
+
+The inference-thread comparison behind the CPU budget was replicated across
+[10 alternating trials](evals/thread-ab.md) with the dataset reset before each:
+pinning the torch thread pool to the container CPU quota gave **4.8× throughput**
+(100.1 vs 20.7 req/s median) and **13.9× lower p95** (665 ms vs 9,239 ms), with
+non-overlapping groups and zero failed requests across 28,335 requests.
+
+Both recovery paths have been exercised and written up:
+[data loss → restore](docs/incidents/2026-09-07-data-loss-restore.md) and
+[bad deploy → rollback](docs/incidents/2026-09-07-bad-deploy-rollback.md).
+Costs are recorded in [docs/cost.md](docs/cost.md) — **actual cloud spend was $0.00**,
+because everything ran locally against LocalStack; the AWS figures there are a dated,
+unvalidated estimate.
+
+**Kubernetes** ([above](#kubernetes)) remains as a local `kind` exercise —
+StatefulSet/Deployment/HPA/probes, deployed against a real cluster, not just
+written. **Terraform + LocalStack** ([above](#terraform--localstack)) provisions
+the AWS-shaped infrastructure a real deployment would sit on. Neither is the
+thing that gets operated; the compose stack above is.
 
 For a lighter-weight PaaS option:
 
@@ -467,7 +512,7 @@ Worker and beat need their own Railway services:
 | scheduled cron-driven ingestion | `app/tasks/celery_app.py:beat_schedule` |
 
 ### Bullet 2 — Postgres performance engineering
-> "Produced **EXPLAIN ANALYZE-backed evidence** for every index in a Postgres/pgvector schema — **GIN full-text (5.9x)**, **composite B-tree (3.7x)**, **HNSW vector search (8.5x)** vs. sequential scan — caught and fixed a **methodology bug** in an `ef_search` recall sweep before trusting the results, and replaced an **n-round-trip update loop** with a single set-based `UPDATE ... FROM unnest()`."
+> "Produced **EXPLAIN ANALYZE-backed evidence** for every index in a Postgres/pgvector schema — **GIN full-text (5.9x)**, **composite B-tree (3.7x)**, **HNSW vector search (8.6x)** vs. sequential scan — caught and fixed a **methodology bug** in an `ef_search` recall sweep before trusting the results, and replaced an **n-round-trip update loop** with a single set-based `UPDATE ... FROM unnest()`."
 
 | Phrase | Code location |
 |---|---|
@@ -584,7 +629,7 @@ talentscope/
 ├── docs/                              # db-engineering.md, observability.md, kubernetes.md, terraform.md
 ├── evals/                             # benchmark.json, load-test.md, k8s-scaling.md, results.md
 ├── scripts/                           # benchmark.py, db_engineering_report.py, log_application.py
-├── tests/                             # 93 tests, 11 files
+├── tests/                             # 153 test functions, 15 files
 ├── docker-compose.yml                 # postgres, redis, api, worker, beat, prometheus, grafana, cadvisor
 ├── docker-compose.loadtest*.yml       # k6 test overlays
 ├── Dockerfile / .dockerignore
