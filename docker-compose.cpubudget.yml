@@ -1,0 +1,69 @@
+# Explicit CPU budgets for the api and worker tiers.
+#
+# Before this file there were no resource constraints anywhere in the repo:
+# every load test ran unconstrained against the whole host, so "the API and
+# ingestion coexist" was never actually tested — they simply had 10 cores
+# between them and never had to share.
+#
+# Two knobs, and they must move together:
+#
+#   deploy.resources.limits.cpus  — how much CPU the container may use.
+#   OMP_NUM_THREADS / TORCH_NUM_THREADS — how many threads torch will start.
+#
+# Setting only the first is the trap. torch sizes its intra-op thread pool
+# from the *host's* core count, not the cgroup quota, so a container limited
+# to 2 CPUs still starts 10 OpenMP threads and spends much of its quota on
+# context switching between threads that cannot run in parallel. Thread
+# oversubscription is the already-identified bottleneck for this workload
+# (evals/load-test.md, and §10 of TALENTSCOPE_RESUME_EVIDENCE.md); this file
+# is where it stops being a finding and becomes a setting.
+#
+# Usage:
+#   API_CPUS=2.0 WORKER_CPUS=2.0 OMP_NUM_THREADS=1 \
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.loadtest.yml \
+#                  -f docker-compose.cpubudget.yml up -d
+
+services:
+  api:
+    environment:
+      OMP_NUM_THREADS: "${OMP_NUM_THREADS:-1}"
+      TORCH_NUM_THREADS: "${TORCH_NUM_THREADS:-${OMP_NUM_THREADS:-1}}"
+      MKL_NUM_THREADS: "${MKL_NUM_THREADS:-${OMP_NUM_THREADS:-1}}"
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPUS:-2.0}"
+          memory: "${API_MEMORY:-2g}"
+        reservations:
+          memory: 512m
+
+  worker:
+    # Kept on ONE line deliberately. A YAML folded scalar (>) only folds
+    # newlines into spaces for lines at the *same* indentation as the first;
+    # a more-indented continuation is preserved literally, newline and all.
+    # Splitting the celery invocation across two indented lines therefore
+    # handed `sh -c` two separate commands, the flags after the break were
+    # silently dropped, and Celery fell back to its default concurrency of
+    # os.cpu_count() — 10 children on this host, each loading its own ~380 MB
+    # copy of the model, which pinned the container at 99.7% of a 2 GiB limit.
+    command: sh -c "rm -rf /tmp/prometheus_multiproc/* && celery -A app.tasks.celery_app worker --loglevel=info --concurrency=${WORKER_CONCURRENCY:-2} -Q ingestion,embedding,maintenance"
+    environment:
+      OMP_NUM_THREADS: "${OMP_NUM_THREADS:-1}"
+      TORCH_NUM_THREADS: "${TORCH_NUM_THREADS:-${OMP_NUM_THREADS:-1}}"
+      MKL_NUM_THREADS: "${MKL_NUM_THREADS:-${OMP_NUM_THREADS:-1}}"
+      # Default keeps the production backpressure; set to "" for the cells
+      # that measure where the CPU budget itself binds.
+      EMBED_RATE_LIMIT: "${EMBED_RATE_LIMIT-300/m}"
+    deploy:
+      resources:
+        limits:
+          # Each prefork child loads its own full copy of the model — measured
+          # at 380-420 MB RSS per child on 2026-09-06, not the ~280 MB the
+          # k8s manifests assume. WORKER_MEMORY must scale with
+          # WORKER_CONCURRENCY or the pool is OOM-killed mid-task; budget
+          # roughly 450 MB per child plus ~150 MB for the parent.
+          cpus: "${WORKER_CPUS:-2.0}"
+          memory: "${WORKER_MEMORY:-2g}"
+        reservations:
+          memory: 512m
