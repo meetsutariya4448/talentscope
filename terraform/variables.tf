@@ -69,3 +69,20 @@ variable "groq_api_key" {
   default     = "placeholder-set-via-TF_VAR_groq_api_key"
   sensitive   = true
 }
+
+variable "backup_retention_days" {
+  description = "Days to keep database dumps in the backups bucket. Matches aws_db_instance.postgres's backup_retention_period so both recovery paths cover the same window."
+  type        = number
+  default     = 7
+}
+
+variable "enable_s3_lifecycle" {
+  description = <<-EOT
+    Apply the backups-bucket lifecycle rule. Off by default because the AWS
+    provider's consistency waiter times out against LocalStack Community even
+    though the rule is created successfully (confirmed with `aws s3api
+    get-bucket-lifecycle-configuration`). Turn on for a real AWS account.
+  EOT
+  type        = bool
+  default     = false
+}

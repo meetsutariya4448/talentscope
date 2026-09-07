@@ -37,6 +37,24 @@ data "aws_iam_policy_document" "app_permissions" {
     ]
   }
 
+  # Separate statement from ModelCacheBucket, with no s3:DeleteObject: the
+  # instance role may write and read backups but must not be able to delete
+  # them. A compromised app host should not be able to remove the thing you
+  # would use to recover from it. Lifecycle expiry (storage.tf) handles
+  # deletion instead, which is S3's own action, not the role's.
+  statement {
+    sid = "BackupsBucketWriteRead"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:ListBucket",
+    ]
+    resources = [
+      aws_s3_bucket.backups.arn,
+      "${aws_s3_bucket.backups.arn}/*",
+    ]
+  }
+
   statement {
     sid = "OwnLogGroup"
     actions = [

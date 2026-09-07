@@ -1,0 +1,53 @@
+# OpenTelemetry Collector for the operating exercise.
+#
+# app/observability.py already builds a TracerProvider and instruments FastAPI,
+# SQLAlchemy and httpx, but it is a no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is
+# set — and nothing set it, so no trace was ever emitted. This directory
+# existed but was empty. The recovery drills need trace evidence, so the
+# collector is now a real service in docker-compose.deploy.yml with this
+# config, and the api/worker point at it.
+
+receivers:
+  otlp:
+    protocols:
+      # The app exports over OTLP/HTTP (opentelemetry-exporter-otlp-proto-http
+      # in requirements.txt, posting to ${endpoint}/v1/traces), so HTTP is the
+      # protocol that matters here; gRPC is enabled for anything else that
+      # wants to ship spans to the same place.
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Bound memory before the queue does: a collector that OOMs during an
+  # incident takes the evidence with it.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  # File output rather than a hosted backend. The drills need spans that can be
+  # read back afterwards and quoted in an incident write-up; a trace UI that
+  # dies with the stack would leave nothing to cite. The file lives on a volume
+  # that outlives the collector container.
+  file:
+    path: /traces/traces.jsonl
+
+  debug:
+    verbosity: normal
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file, debug]

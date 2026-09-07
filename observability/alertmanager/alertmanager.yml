@@ -1,0 +1,59 @@
+# Alertmanager for the operating exercise.
+#
+# No pager, email or Slack receiver is configured, and that is deliberate
+# rather than unfinished: wiring a real destination would mean putting a
+# credential in this repo for a stack that is torn down the same day. What
+# matters for the recovery drills is that alerts genuinely fire, group and
+# become queryable — which the webhook receiver below and Alertmanager's own
+# API both provide. `curl localhost:9093/api/v2/alerts` is the drill evidence.
+#
+# For a real deployment this is the one file that changes: swap the receiver
+# for pagerduty_configs/slack_configs and set the credential from the secret
+# store, exactly as terraform/secrets.tf already does for GROQ_API_KEY.
+
+global:
+  resolve_timeout: 2m
+
+route:
+  receiver: default
+  group_by: ["alertname", "severity"]
+  # Short intervals on purpose: a drill should not spend 5 minutes waiting for
+  # the first notification. Production values would be minutes, not seconds.
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 1h
+
+  routes:
+    # Informational alerts (a spent Q&A budget is the cap working as designed)
+    # are grouped separately so they never sit in the same notification as an
+    # outage.
+    - matchers: ['severity = "info"']
+      receiver: informational
+      group_wait: 30s
+      repeat_interval: 12h
+
+receivers:
+  - name: default
+    webhook_configs:
+      # Points at Alertmanager's own health endpoint: a receiver that always
+      # accepts, so delivery never blocks the queue during a drill. Replace
+      # with a real destination for a real deployment.
+      - url: http://alertmanager:9093/-/ready
+        send_resolved: true
+
+  - name: informational
+    webhook_configs:
+      - url: http://alertmanager:9093/-/ready
+        send_resolved: false
+
+inhibit_rules:
+  # If the API is not being scraped at all, its latency and error-rate alerts
+  # are noise about a target that is simply gone.
+  - source_matchers: ['alertname = "ApiDown"']
+    target_matchers: ['severity =~ "warning|info"']
+    equal: ["job"]
+
+  # A corpus that is entirely empty makes the "coverage is low" alert
+  # redundant and misleading.
+  - source_matchers: ['alertname = "PostingsCorpusEmpty"']
+    target_matchers: ['alertname = "EmbeddingCoverageLow"']

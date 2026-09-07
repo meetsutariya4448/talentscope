@@ -2,6 +2,17 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Rules and an Alertmanager target. Both were absent: the dashboards could
+# draw every metric but nothing could ever fire, so an incident produced no
+# signal to respond to — only a graph someone had to already be looking at.
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   # FastAPI process: HTTP request latency, DB query latency (single-process
   # registry — uvicorn runs one process, no multiprocess aggregation needed).
