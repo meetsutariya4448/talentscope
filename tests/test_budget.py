@@ -111,6 +111,16 @@ def test_budget_counts_before_comparing(monkeypatch):
         __import__("datetime").timezone.utc))] == 2
 
 
+@pytest.mark.parametrize("stored", ["not-a-number", "", -1])
+def test_budget_remaining_rejects_malformed_counters(monkeypatch, stored):
+    monkeypatch.setattr(settings, "qa_daily_budget", 10)
+    rc = FakeRedis()
+    rc.store[qa_budget._budget_key(__import__("datetime").datetime.now(
+        __import__("datetime").timezone.utc))] = stored
+
+    assert qa_budget.budget_remaining(redis_client=rc) is None
+
+
 # ---------------------------------------------------------------------------
 # Per-client rate limit
 # ---------------------------------------------------------------------------

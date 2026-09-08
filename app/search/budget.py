@@ -162,7 +162,12 @@ def budget_remaining(redis_client=_UNSET) -> int | None:
         return None
     try:
         raw = rc.get(_budget_key(datetime.now(timezone.utc)))
+        used = 0 if raw is None else int(raw)
+        if used < 0:
+            return None
+    except (TypeError, ValueError):
+        logger.warning("Q&A budget counter contains a non-integer value")
+        return None
     except Exception:
         return None
-    used = int(raw) if raw else 0
     return max(settings.qa_daily_budget - used, 0)
