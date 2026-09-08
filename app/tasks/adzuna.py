@@ -13,8 +13,6 @@ logger = logging.getLogger(__name__)
 
 ADZUNA_BASE = (
     "https://api.adzuna.com/v1/api/jobs/us/search/{page}"
-    "?app_id={app_id}&app_key={app_key}&results_per_page=50"
-    "&what={query}&content-type=application/json"
 )
 
 ADZUNA_QUERIES = [
@@ -53,6 +51,37 @@ def _ensure_skills(db):
     return skill_map
 
 
+def _fetch_results(query: str, page: int) -> list[dict]:
+    """Fetch one page without leaking query-string credentials on failure."""
+    try:
+        with httpx.Client(timeout=30) as client:
+            response = client.get(
+                ADZUNA_BASE.format(page=page),
+                params={
+                    "app_id": settings.adzuna_app_id,
+                    "app_key": settings.adzuna_app_key,
+                    "results_per_page": 50,
+                    "what": query,
+                    "content-type": "application/json",
+                },
+            )
+            response.raise_for_status()
+            return response.json().get("results", [])
+    except httpx.HTTPError as error:
+        detail = (
+            f"HTTP {error.response.status_code}"
+            if isinstance(error, httpx.HTTPStatusError)
+            else type(error).__name__
+        )
+        logger.warning(
+            "Adzuna fetch failed for query %r page %s (%s)", query, page, detail
+        )
+        # HTTPX exception text includes the full URL, including app_key.
+        # Celery records the raised exception after retries are exhausted, so
+        # replace it with a useful but credential-free failure.
+        raise RuntimeError(f"Adzuna request failed ({detail})") from None
+
+
 @celery_app.task(
     name="app.tasks.adzuna.fetch_adzuna",
     bind=True,
@@ -66,20 +95,7 @@ def fetch_adzuna(self, query: str, page: int = 1):
         logger.warning("Adzuna credentials not configured, skipping")
         return {"skipped": True}
 
-    url = ADZUNA_BASE.format(
-        page=page,
-        app_id=settings.adzuna_app_id,
-        app_key=settings.adzuna_app_key,
-        query=query.replace(" ", "%20"),
-    )
-    try:
-        with httpx.Client(timeout=30) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            results = resp.json().get("results", [])
-    except httpx.HTTPError as e:
-        logger.warning(f"Adzuna fetch failed for query '{query}' page {page}: {e}")
-        raise
+    results = _fetch_results(query, page)
 
     db: Session = SessionLocal()
     inserted_ids: list[int] = []

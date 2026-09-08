@@ -1,4 +1,5 @@
 import pytest
+import httpx
 from unittest.mock import patch, MagicMock
 from app.ingestion.skills import extract_skills
 from app.ingestion.normalizer import normalize_greenhouse, normalize_lever, normalize_adzuna, _strip_html
@@ -119,6 +120,28 @@ def test_normalizers_tolerate_malformed_nested_provider_metadata():
     assert lever["location"] == ""
     assert adzuna["location"] == ""
     assert adzuna["company_name"] == ""
+
+
+def test_adzuna_http_failure_does_not_expose_credentials(monkeypatch, caplog):
+    from app.config import settings
+    from app.tasks.adzuna import _fetch_results
+
+    secret = "test-app-key-must-not-appear"
+    monkeypatch.setattr(settings, "adzuna_app_id", "test-app-id")
+    monkeypatch.setattr(settings, "adzuna_app_key", secret)
+    request = httpx.Request(
+        "GET", f"https://example.test/jobs?app_id=test-app-id&app_key={secret}"
+    )
+    response = httpx.Response(401, request=request)
+    client = MagicMock()
+    client.__enter__.return_value.get.return_value = response
+
+    with patch("app.tasks.adzuna.httpx.Client", return_value=client):
+        with pytest.raises(RuntimeError, match=r"Adzuna request failed \(HTTP 401\)") as error:
+            _fetch_results("python & data", 1)
+
+    assert secret not in str(error.value)
+    assert secret not in caplog.text
 
 
 def test_fetch_greenhouse_task_eager(db):
