@@ -6,6 +6,8 @@ started process therefore reported itself Ready, and the first vector/hybrid
 request paid the entire model load inside the request.
 """
 
+import threading
+
 from app.search import encoder
 
 
@@ -122,12 +124,35 @@ def test_warm_model_sets_readiness_and_records_duration(monkeypatch):
     assert encoder.model_load_seconds() == elapsed
 
 
-def test_lazy_first_caller_also_marks_the_process_ready(monkeypatch):
-    """A process that skipped warmup and loaded lazily is warm from then on —
-    readiness must reflect that rather than staying stuck at False."""
+def test_model_construction_alone_does_not_mark_the_process_ready(monkeypatch):
+    """Construction is only a small part of warmup; the first encode must finish."""
     monkeypatch.setattr(encoder, "_model", object())
     encoder._ready.clear()
 
     encoder.get_model()
 
+    assert encoder.is_model_ready() is False
+
+
+def test_warmup_does_not_mark_ready_until_first_encode_finishes(monkeypatch):
+    encode_started = threading.Event()
+    release_encode = threading.Event()
+
+    class _BlockingModel:
+        def encode(self, _texts, **_kwargs):
+            encode_started.set()
+            assert release_encode.wait(timeout=2)
+            return [[0.0] * 384]
+
+    monkeypatch.setattr(encoder, "_model", _BlockingModel())
+    encoder._ready.clear()
+    warmup = threading.Thread(target=encoder.warm_model)
+    warmup.start()
+
+    assert encode_started.wait(timeout=2)
+    assert encoder.is_model_ready() is False
+
+    release_encode.set()
+    warmup.join(timeout=2)
+    assert not warmup.is_alive()
     assert encoder.is_model_ready() is True

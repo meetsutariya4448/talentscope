@@ -37,9 +37,6 @@ def get_model():
                 logger.info("Loading sentence-transformer model (%s)…", MODEL_NAME)
                 _model = SentenceTransformer(MODEL_NAME)
                 logger.info("Model loaded.")
-    # A lazy first caller that got here without warm_model() still counts as
-    # warm from this point on — the expensive part is behind it either way.
-    _ready.set()
     return _model
 
 
