@@ -135,6 +135,16 @@ def test_answer_question_cache_hit():
         {},
         {"answer": "Cached answer", "sources": "not-a-list"},
         {"answer": "Cached answer", "sources": [{"title": "Missing id"}]},
+        {
+            "answer": "Cached answer [1]",
+            "sources": [{"id": 1, "title": "Engineer"}],
+            "cited_ids": [2],
+        },
+        {
+            "answer": "Cached answer without a citation",
+            "sources": [{"id": 1, "title": "Engineer"}],
+            "cited_ids": [1],
+        },
     ],
 )
 def test_answer_question_ignores_malformed_cache_payloads(cached_body):
