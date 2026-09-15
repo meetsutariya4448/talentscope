@@ -4,6 +4,7 @@ from app.tasks.celery_app import app as celery_app
 from app.database import SessionLocal
 from app.models import Skill
 from app.ingestion.normalizer import normalize_ashby
+from app.ingestion.provider_payloads import extract_job_list
 from app.ingestion.ingest import ingest_posting
 from app.ingestion.panel import record_company_check
 from app.ingestion.skills import SKILLS
@@ -43,7 +44,7 @@ def fetch_ashby(self, board_name: str, company_id: int):
             resp = client.get(url)
             http_status = resp.status_code
             resp.raise_for_status()
-            jobs = resp.json().get("jobs", [])
+            jobs = extract_job_list(resp.json(), key="jobs")
     except httpx.TimeoutException as e:
         logger.warning(f"Ashby fetch timed out for {board_name}: {e}")
         record_company_check(

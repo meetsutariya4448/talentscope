@@ -4,6 +4,7 @@ from app.tasks.celery_app import app as celery_app
 from app.database import SessionLocal
 from app.models import Company, Skill
 from app.ingestion.normalizer import normalize_adzuna
+from app.ingestion.provider_payloads import extract_job_list
 from app.ingestion.ingest import ingest_posting
 from app.ingestion.skills import SKILLS
 from app.config import settings
@@ -66,7 +67,7 @@ def _fetch_results(query: str, page: int) -> list[dict]:
                 },
             )
             response.raise_for_status()
-            return response.json().get("results", [])
+            return extract_job_list(response.json(), key="results")
     except httpx.HTTPError as error:
         detail = (
             f"HTTP {error.response.status_code}"
