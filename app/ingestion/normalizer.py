@@ -1,7 +1,7 @@
 import math
 import re
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from html import unescape
 
 
@@ -53,7 +53,7 @@ def normalize_lever(job: dict, company_id: int) -> dict:
     posted_at = None
     if job.get("createdAt"):
         try:
-            posted_at = datetime.utcfromtimestamp(job["createdAt"] / 1000)
+            posted_at = datetime.fromtimestamp(job["createdAt"] / 1000, tz=timezone.utc)
         except Exception:
             pass
     return {

@@ -1,3 +1,5 @@
+from datetime import timezone
+
 import pytest
 import httpx
 from unittest.mock import patch, MagicMock
@@ -66,6 +68,7 @@ def test_normalize_lever():
     assert result["title"] == "Backend Engineer"
     assert result["source"] == "lever"
     assert result["source_id"] == "abc-123"
+    assert result["posted_at"].tzinfo is timezone.utc
 
 
 def test_normalize_adzuna():
