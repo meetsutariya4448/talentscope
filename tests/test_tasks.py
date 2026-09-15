@@ -38,6 +38,11 @@ def test_strip_html_decodes_entities_and_normalizes_nonbreaking_spaces():
     assert _strip_html(html) == "R&D <Platform> 'team'"
 
 
+@pytest.mark.parametrize("value", [None, 123, {"html": "<p>unexpected</p>"}])
+def test_strip_html_tolerates_non_string_provider_values(value):
+    assert _strip_html(value) == ""
+
+
 def test_normalize_greenhouse():
     job = {
         "id": 12345,

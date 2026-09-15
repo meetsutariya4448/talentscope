@@ -142,8 +142,8 @@ def _optional_float(value) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
-def _strip_html(html: str) -> str:
-    if not html:
+def _strip_html(html: object) -> str:
+    if not isinstance(html, str) or not html:
         return ""
     clean = re.sub(r"<[^>]+>", " ", html)
     clean = unescape(clean)
