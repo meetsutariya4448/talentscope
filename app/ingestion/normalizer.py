@@ -13,13 +13,24 @@ def _mapping_text(value, key: str) -> str:
     return text if isinstance(text, str) else ""
 
 
+def _source_id(job: Mapping) -> str:
+    """Normalize a provider ID without allowing empty-key collisions."""
+    value = job.get("id")
+    if value is None or isinstance(value, bool):
+        raise ValueError("provider job is missing a valid id")
+    normalized = str(value).strip()
+    if not normalized:
+        raise ValueError("provider job is missing a valid id")
+    return normalized
+
+
 def normalize_greenhouse(job: dict, company_id: int) -> dict:
     """Normalize a Greenhouse API job record to common shape."""
     title = job.get("title", "")
     location = _mapping_text(job.get("location"), "name")
     description = _strip_html(job.get("content", ""))
     url = job.get("absolute_url", "")
-    source_id = str(job.get("id", ""))
+    source_id = _source_id(job)
     posted_at = None
     if job.get("updated_at"):
         try:
@@ -49,7 +60,7 @@ def normalize_lever(job: dict, company_id: int) -> dict:
         (job.get("descriptionPlain") or job.get("description") or "")
     )
     url = job.get("hostedUrl", "")
-    source_id = job.get("id", "")
+    source_id = _source_id(job)
     posted_at = None
     if job.get("createdAt"):
         try:
@@ -77,7 +88,7 @@ def normalize_ashby(job: dict, company_id: int) -> dict:
     location = job.get("location", "")
     description = _strip_html(job.get("descriptionHtml") or "")
     url = job.get("jobUrl") or job.get("applyUrl") or ""
-    source_id = str(job.get("id", ""))
+    source_id = _source_id(job)
     posted_at = None
     if job.get("publishedAt"):
         try:
@@ -107,7 +118,7 @@ def normalize_adzuna(job: dict) -> dict:
     salary_min = job.get("salary_min")
     salary_max = job.get("salary_max")
     url = job.get("redirect_url", "")
-    source_id = job.get("id", "")
+    source_id = _source_id(job)
     posted_at = None
     if job.get("created"):
         try:

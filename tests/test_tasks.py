@@ -4,7 +4,13 @@ import pytest
 import httpx
 from unittest.mock import patch, MagicMock
 from app.ingestion.skills import extract_skills
-from app.ingestion.normalizer import normalize_greenhouse, normalize_lever, normalize_adzuna, _strip_html
+from app.ingestion.normalizer import (
+    _strip_html,
+    normalize_adzuna,
+    normalize_ashby,
+    normalize_greenhouse,
+    normalize_lever,
+)
 
 
 def test_extract_skills_python():
@@ -76,6 +82,26 @@ def test_normalize_lever():
     assert result["posted_at"].tzinfo is timezone.utc
 
 
+def test_normalize_lever_converts_numeric_source_id_to_string():
+    result = normalize_lever({"id": 123, "text": "Engineer"}, company_id=2)
+
+    assert result["source_id"] == "123"
+
+
+@pytest.mark.parametrize(
+    ("normalizer", "job", "args"),
+    [
+        (normalize_greenhouse, {"title": "Engineer"}, (1,)),
+        (normalize_lever, {"id": "  ", "text": "Engineer"}, (1,)),
+        (normalize_ashby, {"id": None, "title": "Engineer"}, (1,)),
+        (normalize_adzuna, {"id": False, "title": "Engineer"}, ()),
+    ],
+)
+def test_normalizers_reject_missing_provider_ids(normalizer, job, args):
+    with pytest.raises(ValueError, match="valid id"):
+        normalizer(job, *args)
+
+
 def test_normalize_adzuna():
     job = {
         "id": "adzuna-999",
@@ -120,9 +146,13 @@ def test_normalize_adzuna_preserves_zero_salary_bounds():
 
 
 def test_normalizers_tolerate_malformed_nested_provider_metadata():
-    greenhouse = normalize_greenhouse({"location": "Remote"}, company_id=1)
-    lever = normalize_lever({"categories": ["Remote"]}, company_id=2)
-    adzuna = normalize_adzuna({"location": "Remote", "company": ["Acme"]})
+    greenhouse = normalize_greenhouse(
+        {"id": "gh-1", "location": "Remote"}, company_id=1
+    )
+    lever = normalize_lever({"id": "lever-1", "categories": ["Remote"]}, company_id=2)
+    adzuna = normalize_adzuna(
+        {"id": "adzuna-1", "location": "Remote", "company": ["Acme"]}
+    )
 
     assert greenhouse["location"] == ""
     assert lever["location"] == ""
