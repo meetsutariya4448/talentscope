@@ -82,6 +82,7 @@ def sync_monitored_companies(db: Session, target_companies: dict[str, list[dict]
                 monitored.display_name = entry.get("name", token)
                 if not monitored.is_active:
                     monitored.is_active = True
+                    monitored.monitoring_started_at = now
                     monitored.monitoring_stopped_at = None
 
     for monitored in db.query(MonitoredCompany).filter_by(is_active=True).all():

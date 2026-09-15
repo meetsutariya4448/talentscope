@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -59,4 +60,28 @@ def test_sync_updates_existing_company_display_name():
     )
 
     assert monitored.display_name == "Acme Corporation"
+    db.commit.assert_called_once_with()
+
+
+def test_sync_restarts_monitoring_window_when_company_is_reactivated():
+    old_start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    stopped_at = datetime(2025, 2, 1, tzinfo=timezone.utc)
+    monitored = MagicMock(
+        source="lever",
+        company_token="acme",
+        display_name="Acme",
+        monitoring_started_at=old_start,
+        monitoring_stopped_at=stopped_at,
+        is_active=False,
+    )
+    db = MagicMock()
+    query = db.query.return_value
+    query.filter_by.return_value.first.return_value = monitored
+    query.filter_by.return_value.all.return_value = []
+
+    sync_monitored_companies(db, {"lever": [{"token": "acme", "name": "Acme"}]})
+
+    assert monitored.is_active is True
+    assert monitored.monitoring_started_at > old_start
+    assert monitored.monitoring_stopped_at is None
     db.commit.assert_called_once_with()
