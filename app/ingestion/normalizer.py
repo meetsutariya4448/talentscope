@@ -36,6 +36,30 @@ def _source_id(job: Mapping) -> str:
     return normalized
 
 
+def _iso_timestamp(value) -> datetime | None:
+    """Parse provider ISO timestamps into timezone-aware UTC datetimes."""
+    if not isinstance(value, str) or not value:
+        return None
+    encoded = f"{value[:-1]}+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(encoded)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _epoch_millis_timestamp(value) -> datetime | None:
+    """Parse numeric epoch milliseconds without accepting booleans."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def normalize_greenhouse(job: dict, company_id: int) -> dict:
     """Normalize a Greenhouse API job record to common shape."""
     title = _text(job.get("title"))
@@ -43,12 +67,7 @@ def normalize_greenhouse(job: dict, company_id: int) -> dict:
     description = _strip_html(job.get("content", ""))
     url = _text(job.get("absolute_url"))
     source_id = _source_id(job)
-    posted_at = None
-    if job.get("updated_at"):
-        try:
-            posted_at = datetime.fromisoformat(job["updated_at"].replace("Z", "+00:00"))
-        except Exception:
-            pass
+    posted_at = _iso_timestamp(job.get("updated_at"))
     return {
         "company_id": company_id,
         "title": title,
@@ -73,12 +92,7 @@ def normalize_lever(job: dict, company_id: int) -> dict:
     ))
     url = _text(job.get("hostedUrl"))
     source_id = _source_id(job)
-    posted_at = None
-    if job.get("createdAt"):
-        try:
-            posted_at = datetime.fromtimestamp(job["createdAt"] / 1000, tz=timezone.utc)
-        except Exception:
-            pass
+    posted_at = _epoch_millis_timestamp(job.get("createdAt"))
     return {
         "company_id": company_id,
         "title": title,
@@ -101,12 +115,7 @@ def normalize_ashby(job: dict, company_id: int) -> dict:
     description = _strip_html(job.get("descriptionHtml") or "")
     url = _first_text(job.get("jobUrl"), job.get("applyUrl"))
     source_id = _source_id(job)
-    posted_at = None
-    if job.get("publishedAt"):
-        try:
-            posted_at = datetime.fromisoformat(job["publishedAt"].replace("Z", "+00:00"))
-        except Exception:
-            pass
+    posted_at = _iso_timestamp(job.get("publishedAt"))
     return {
         "company_id": company_id,
         "title": title,
@@ -131,12 +140,7 @@ def normalize_adzuna(job: dict) -> dict:
     salary_max = job.get("salary_max")
     url = _text(job.get("redirect_url"))
     source_id = _source_id(job)
-    posted_at = None
-    if job.get("created"):
-        try:
-            posted_at = datetime.fromisoformat(job["created"].replace("Z", "+00:00"))
-        except Exception:
-            pass
+    posted_at = _iso_timestamp(job.get("created"))
     company_name = _mapping_text(job.get("company"), "display_name")
     return {
         "company_id": None,  # Adzuna postings don't always map to our company list

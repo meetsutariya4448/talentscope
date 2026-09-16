@@ -88,6 +88,29 @@ def test_normalize_lever_converts_numeric_source_id_to_string():
     assert result["source_id"] == "123"
 
 
+def test_normalizers_return_utc_aware_provider_timestamps():
+    greenhouse = normalize_greenhouse(
+        {"id": "gh-time", "updated_at": "2024-01-15T10:00:00"}, company_id=1
+    )
+    ashby = normalize_ashby(
+        {"id": "ashby-time", "publishedAt": "2024-01-15T10:00:00-05:00"},
+        company_id=2,
+    )
+
+    assert greenhouse["posted_at"].tzinfo is timezone.utc
+    assert greenhouse["posted_at"].hour == 10
+    assert ashby["posted_at"].tzinfo is timezone.utc
+    assert ashby["posted_at"].hour == 15
+
+
+def test_normalizers_ignore_non_timestamp_provider_values():
+    lever = normalize_lever({"id": "lever-time", "createdAt": True}, company_id=1)
+    adzuna = normalize_adzuna({"id": "adzuna-time", "created": {"date": "bad"}})
+
+    assert lever["posted_at"] is None
+    assert adzuna["posted_at"] is None
+
+
 @pytest.mark.parametrize(
     ("normalizer", "job", "args"),
     [
