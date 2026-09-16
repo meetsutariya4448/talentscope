@@ -90,7 +90,10 @@ def _update_task_execution(task_id, *, state, finished, error=None):
 @task_prerun.connect
 def _on_task_prerun(sender=None, task_id=None, args=None, kwargs=None, **_):
     if task_id is not None:
-        _task_start_times[task_id] = time.perf_counter()
+        # Celery reuses the task id when a task is retried. Preserve the
+        # original attempt's start so the terminal duration includes the
+        # complete retry lifecycle instead of only the final attempt.
+        _task_start_times.setdefault(task_id, time.perf_counter())
 
     if sender is None or sender.name not in _TRACK_STATE_FOR:
         return

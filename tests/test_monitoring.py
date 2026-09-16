@@ -207,6 +207,22 @@ def test_retry_postrun_does_not_double_count_or_discard_start_time():
         monitoring_mod._task_start_times.pop(task_id, None)
 
 
+def test_retry_prerun_preserves_original_start_time():
+    import app.tasks.monitoring as monitoring_mod
+
+    task_id = "retried-prerun-task"
+    sender = _mock_sender("app.tasks.embedding.embed_posting")
+
+    try:
+        with patch.object(monitoring_mod.time, "perf_counter", side_effect=[10.0, 20.0]):
+            monitoring_mod._on_task_prerun(sender=sender, task_id=task_id)
+            monitoring_mod._on_task_prerun(sender=sender, task_id=task_id)
+
+        assert monitoring_mod._task_start_times[task_id] == 10.0
+    finally:
+        monitoring_mod._task_start_times.pop(task_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Worker heartbeats
 # ---------------------------------------------------------------------------
