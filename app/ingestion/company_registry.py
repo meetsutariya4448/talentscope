@@ -42,8 +42,14 @@ def load_target_companies(path: Path = CONFIG_PATH) -> dict[str, list[dict]]:
             if token in seen_tokens:
                 raise ValueError(f"duplicate target company token for {source}: {token}")
             name = entry.get("name")
-            if name is not None and (not isinstance(name, str) or not name.strip()):
-                raise ValueError(f"target company name for {source}/{token} must be nonempty")
+            if name is not None and (
+                not isinstance(name, str)
+                or not name.strip()
+                or name != name.strip()
+            ):
+                raise ValueError(
+                    f"target company name for {source}/{token} must be a trimmed string"
+                )
             seen_tokens.add(token)
             validated_entries.append(entry)
         validated[source] = validated_entries
