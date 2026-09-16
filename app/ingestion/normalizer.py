@@ -16,7 +16,10 @@ def _mapping_text(value, key: str) -> str:
 def _source_id(job: Mapping) -> str:
     """Normalize a provider ID without allowing empty-key collisions."""
     value = job.get("id")
-    if value is None or isinstance(value, bool):
+    # Public APIs represent identifiers as JSON strings or integers. Coercing
+    # floats, lists, or objects creates unstable keys such as "nan" or a
+    # Python container representation and can collapse unrelated postings.
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ValueError("provider job is missing a valid id")
     normalized = str(value).strip()
     if not normalized:

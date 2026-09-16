@@ -102,6 +102,12 @@ def test_normalizers_reject_missing_provider_ids(normalizer, job, args):
         normalizer(job, *args)
 
 
+@pytest.mark.parametrize("source_id", [1.25, float("nan"), ["job-1"], {"id": "job-1"}])
+def test_normalizers_reject_compound_or_nonintegral_provider_ids(source_id):
+    with pytest.raises(ValueError, match="valid id"):
+        normalize_adzuna({"id": source_id, "title": "Engineer"})
+
+
 def test_normalize_adzuna():
     job = {
         "id": "adzuna-999",
