@@ -5,12 +5,21 @@ from datetime import datetime, timezone
 from html import unescape
 
 
+def _text(value) -> str:
+    """Return provider text only when its JSON type is actually a string."""
+    return value if isinstance(value, str) else ""
+
+
+def _first_text(*values) -> str:
+    """Return the first nonempty string without trusting truthy non-strings."""
+    return next((value for value in values if isinstance(value, str) and value), "")
+
+
 def _mapping_text(value, key: str) -> str:
     """Read a string from provider metadata without trusting its shape."""
     if not isinstance(value, Mapping):
         return ""
-    text = value.get(key, "")
-    return text if isinstance(text, str) else ""
+    return _text(value.get(key))
 
 
 def _source_id(job: Mapping) -> str:
@@ -29,10 +38,10 @@ def _source_id(job: Mapping) -> str:
 
 def normalize_greenhouse(job: dict, company_id: int) -> dict:
     """Normalize a Greenhouse API job record to common shape."""
-    title = job.get("title", "")
+    title = _text(job.get("title"))
     location = _mapping_text(job.get("location"), "name")
     description = _strip_html(job.get("content", ""))
-    url = job.get("absolute_url", "")
+    url = _text(job.get("absolute_url"))
     source_id = _source_id(job)
     posted_at = None
     if job.get("updated_at"):
@@ -57,12 +66,12 @@ def normalize_greenhouse(job: dict, company_id: int) -> dict:
 
 def normalize_lever(job: dict, company_id: int) -> dict:
     """Normalize a Lever API posting to common shape."""
-    title = job.get("text", "")
+    title = _text(job.get("text"))
     location = _mapping_text(job.get("categories"), "location")
-    description = _strip_html(
-        (job.get("descriptionPlain") or job.get("description") or "")
-    )
-    url = job.get("hostedUrl", "")
+    description = _strip_html(_first_text(
+        job.get("descriptionPlain"), job.get("description")
+    ))
+    url = _text(job.get("hostedUrl"))
     source_id = _source_id(job)
     posted_at = None
     if job.get("createdAt"):
@@ -87,10 +96,10 @@ def normalize_lever(job: dict, company_id: int) -> dict:
 
 def normalize_ashby(job: dict, company_id: int) -> dict:
     """Normalize an Ashby public job-board API posting to common shape."""
-    title = job.get("title", "")
-    location = job.get("location", "")
+    title = _text(job.get("title"))
+    location = _text(job.get("location"))
     description = _strip_html(job.get("descriptionHtml") or "")
-    url = job.get("jobUrl") or job.get("applyUrl") or ""
+    url = _first_text(job.get("jobUrl"), job.get("applyUrl"))
     source_id = _source_id(job)
     posted_at = None
     if job.get("publishedAt"):
@@ -115,12 +124,12 @@ def normalize_ashby(job: dict, company_id: int) -> dict:
 
 def normalize_adzuna(job: dict) -> dict:
     """Normalize an Adzuna API result to common shape."""
-    title = job.get("title", "")
+    title = _text(job.get("title"))
     location = _mapping_text(job.get("location"), "display_name")
-    description = job.get("description", "")
+    description = _text(job.get("description"))
     salary_min = job.get("salary_min")
     salary_max = job.get("salary_max")
-    url = job.get("redirect_url", "")
+    url = _text(job.get("redirect_url"))
     source_id = _source_id(job)
     posted_at = None
     if job.get("created"):

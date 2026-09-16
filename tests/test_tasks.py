@@ -166,6 +166,45 @@ def test_normalizers_tolerate_malformed_nested_provider_metadata():
     assert adzuna["company_name"] == ""
 
 
+def test_normalizers_tolerate_malformed_top_level_text_fields():
+    greenhouse = normalize_greenhouse(
+        {"id": "gh-text", "title": ["Engineer"], "absolute_url": {"url": "bad"}},
+        company_id=1,
+    )
+    lever = normalize_lever(
+        {
+            "id": "lever-text",
+            "text": {"value": "Engineer"},
+            "descriptionPlain": ["bad"],
+            "description": "Valid fallback",
+            "hostedUrl": 123,
+        },
+        company_id=2,
+    )
+    ashby = normalize_ashby(
+        {
+            "id": "ashby-text",
+            "title": 123,
+            "location": ["Remote"],
+            "jobUrl": {"url": "bad"},
+            "applyUrl": "https://example.test/apply",
+        },
+        company_id=3,
+    )
+    adzuna = normalize_adzuna(
+        {"id": "adzuna-text", "title": ["Engineer"], "description": {}, "redirect_url": 1}
+    )
+
+    assert (greenhouse["title"], greenhouse["url"]) == ("", "")
+    assert (lever["title"], lever["description"], lever["url"]) == (
+        "", "Valid fallback", "",
+    )
+    assert (ashby["title"], ashby["location"], ashby["url"]) == (
+        "", "", "https://example.test/apply",
+    )
+    assert (adzuna["title"], adzuna["description"], adzuna["url"]) == ("", "", "")
+
+
 def test_adzuna_http_failure_does_not_expose_credentials(monkeypatch, caplog):
     from app.config import settings
     from app.tasks.adzuna import _fetch_results
