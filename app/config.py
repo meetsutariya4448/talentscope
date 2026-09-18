@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     # and every logger.warning in the ingestion path — is emitted to a
     # handler-less logger and silently dropped.
     log_level: str = "INFO"
+
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("log level must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
+        return normalized
 
     # Celery rate limit for embed_posting, in Celery's own notation
     # ("300/m", "50/s", or "" to disable). Made configurable because it, not

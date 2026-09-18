@@ -40,3 +40,10 @@ def test_settings_accept_documented_runtime_bounds():
     assert configured.db_max_overflow == 0
     assert configured.db_pool_recycle_seconds == 1
     assert configured.vector_ef_search == 1
+
+
+def test_settings_normalizes_and_validates_log_level():
+    assert Settings(_env_file=None, log_level=" warning ").log_level == "WARNING"
+
+    with pytest.raises(ValidationError, match="log level"):
+        Settings(_env_file=None, log_level="verbose")
