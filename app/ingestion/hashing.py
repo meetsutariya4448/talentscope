@@ -1,5 +1,6 @@
 import hashlib
 import re
+from html import unescape
 
 _RELATIVE_DATE_PATTERNS = [
     re.compile(r"posted\s+\d+\+?\s*(day|week|month|hour)s?\s+ago", re.IGNORECASE),
@@ -22,6 +23,7 @@ def normalize_description(text: str | None) -> str:
     if not text:
         return ""
     cleaned = _TAG_RE.sub(" ", text)
+    cleaned = unescape(cleaned)
     for pattern in _RELATIVE_DATE_PATTERNS:
         cleaned = pattern.sub(" ", cleaned)
     cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip().lower()

@@ -32,6 +32,13 @@ def test_normalize_description_case_and_whitespace_insensitive():
     assert a == b
 
 
+def test_normalize_description_treats_html_entities_as_text():
+    encoded = normalize_description("R&amp;D builds platform tooling&nbsp;today")
+    decoded = normalize_description("R&D builds platform tooling today")
+
+    assert encoded == decoded
+
+
 def test_hash_text_stable_for_equivalent_normalized_text():
     a = hash_text(normalize_description("<p>Python engineer</p>"))
     b = hash_text(normalize_description("python engineer"))
