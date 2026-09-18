@@ -5,6 +5,11 @@ from datetime import datetime, timezone
 from html import unescape
 
 
+_NON_CONTENT_HTML_RE = re.compile(
+    r"<(script|style)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
+)
+
+
 def _text(value) -> str:
     """Return provider text only when its JSON type is actually a string."""
     return value if isinstance(value, str) else ""
@@ -172,6 +177,7 @@ def _optional_float(value) -> float | None:
 def _strip_html(html: object) -> str:
     if not isinstance(html, str) or not html:
         return ""
+    html = _NON_CONTENT_HTML_RE.sub(" ", html)
     clean = re.sub(r"<[^>]+>", " ", html)
     clean = unescape(clean)
     clean = re.sub(r"\s+", " ", clean).strip()

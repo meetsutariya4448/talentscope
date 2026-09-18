@@ -44,6 +44,16 @@ def test_strip_html_decodes_entities_and_normalizes_nonbreaking_spaces():
     assert _strip_html(html) == "R&D <Platform> 'team'"
 
 
+def test_strip_html_discards_script_and_style_contents():
+    html = (
+        "<style>.job { display: none; }</style>"
+        "<p>Platform engineer</p>"
+        "<script>trackApplicant('secret')</script>"
+    )
+
+    assert _strip_html(html) == "Platform engineer"
+
+
 @pytest.mark.parametrize("value", [None, 123, {"html": "<p>unexpected</p>"}])
 def test_strip_html_tolerates_non_string_provider_values(value):
     assert _strip_html(value) == ""
