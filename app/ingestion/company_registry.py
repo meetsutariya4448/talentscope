@@ -36,6 +36,12 @@ def load_target_companies(path: Path = CONFIG_PATH) -> dict[str, list[dict]]:
         for entry in entries:
             if not isinstance(entry, dict):
                 raise ValueError(f"target company entry for {source} must be a mapping")
+            unexpected = set(entry) - {"token", "name"}
+            if unexpected:
+                fields = ", ".join(sorted(str(field) for field in unexpected))
+                raise ValueError(
+                    f"target company entry for {source} has unsupported fields: {fields}"
+                )
             token = entry.get("token")
             if not isinstance(token, str) or not token.strip() or token != token.strip():
                 raise ValueError(f"target company token for {source} must be a trimmed string")
