@@ -166,7 +166,7 @@ def _optional_float(value) -> float | None:
         parsed = float(value)
     except (TypeError, ValueError):
         return None
-    return parsed if math.isfinite(parsed) else None
+    return parsed if math.isfinite(parsed) and parsed >= 0 else None
 
 
 def _strip_html(html: object) -> str:

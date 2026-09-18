@@ -174,6 +174,19 @@ def test_normalize_adzuna_preserves_zero_salary_bounds():
     assert result["salary_max"] == 0.0
 
 
+@pytest.mark.parametrize("salary", [-1, "-0.01"])
+def test_normalize_adzuna_rejects_negative_salary_bounds(salary):
+    result = normalize_adzuna({
+        "id": "adzuna-negative-salary",
+        "title": "Engineer",
+        "salary_min": salary,
+        "salary_max": salary,
+    })
+
+    assert result["salary_min"] is None
+    assert result["salary_max"] is None
+
+
 def test_normalizers_tolerate_malformed_nested_provider_metadata():
     greenhouse = normalize_greenhouse(
         {"id": "gh-1", "location": "Remote"}, company_id=1
