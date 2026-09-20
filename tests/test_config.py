@@ -60,3 +60,12 @@ def test_settings_accepts_documented_embed_rate_limits(value):
 def test_settings_rejects_invalid_embed_rate_limits(value):
     with pytest.raises(ValidationError, match="embed rate limit"):
         Settings(_env_file=None, embed_rate_limit=value)
+
+
+def test_settings_normalizes_and_rejects_blank_groq_model():
+    configured = Settings(_env_file=None, groq_model=" openai/gpt-oss-20b ")
+
+    assert configured.groq_model == "openai/gpt-oss-20b"
+
+    with pytest.raises(ValidationError, match="Groq model must not be blank"):
+        Settings(_env_file=None, groq_model="   ")

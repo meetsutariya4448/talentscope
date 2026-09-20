@@ -100,4 +100,12 @@ class Settings(BaseSettings):
     #        https://api.groq.com/openai/v1/models
     groq_model: str = "openai/gpt-oss-20b"
 
+    @field_validator("groq_model")
+    @classmethod
+    def validate_groq_model(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Groq model must not be blank")
+        return normalized
+
 settings = Settings()
