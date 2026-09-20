@@ -38,6 +38,8 @@ def _source_id(job: Mapping) -> str:
     normalized = str(value).strip()
     if not normalized:
         raise ValueError("provider job is missing a valid id")
+    if len(normalized) > 512:
+        raise ValueError("provider job id exceeds the 512-character storage limit")
     return normalized
 
 

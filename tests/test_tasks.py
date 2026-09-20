@@ -141,6 +141,11 @@ def test_normalizers_reject_compound_or_nonintegral_provider_ids(source_id):
         normalize_adzuna({"id": source_id, "title": "Engineer"})
 
 
+def test_normalizers_reject_provider_ids_that_exceed_storage_limit():
+    with pytest.raises(ValueError, match="512-character storage limit"):
+        normalize_adzuna({"id": "x" * 513, "title": "Engineer"})
+
+
 def test_normalize_adzuna():
     job = {
         "id": "adzuna-999",
