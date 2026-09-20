@@ -15,16 +15,22 @@ def _text(value) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _bounded_text(value, max_length: int) -> str:
+    """Fit provider text into a bounded database column."""
+    return _text(value)[:max_length]
+
+
 def _first_text(*values) -> str:
     """Return the first nonempty string without trusting truthy non-strings."""
     return next((value for value in values if isinstance(value, str) and value), "")
 
 
-def _mapping_text(value, key: str) -> str:
+def _mapping_text(value, key: str, max_length: int | None = None) -> str:
     """Read a string from provider metadata without trusting its shape."""
     if not isinstance(value, Mapping):
         return ""
-    return _text(value.get(key))
+    text = _text(value.get(key))
+    return text if max_length is None else text[:max_length]
 
 
 def _source_id(job: Mapping) -> str:
@@ -69,8 +75,8 @@ def _epoch_millis_timestamp(value) -> datetime | None:
 
 def normalize_greenhouse(job: dict, company_id: int) -> dict:
     """Normalize a Greenhouse API job record to common shape."""
-    title = _text(job.get("title"))
-    location = _mapping_text(job.get("location"), "name")
+    title = _bounded_text(job.get("title"), 512)
+    location = _mapping_text(job.get("location"), "name", 255)
     description = _strip_html(job.get("content", ""))
     url = _text(job.get("absolute_url"))
     source_id = _source_id(job)
@@ -92,8 +98,8 @@ def normalize_greenhouse(job: dict, company_id: int) -> dict:
 
 def normalize_lever(job: dict, company_id: int) -> dict:
     """Normalize a Lever API posting to common shape."""
-    title = _text(job.get("text"))
-    location = _mapping_text(job.get("categories"), "location")
+    title = _bounded_text(job.get("text"), 512)
+    location = _mapping_text(job.get("categories"), "location", 255)
     description = _strip_html(_first_text(
         job.get("descriptionPlain"), job.get("description")
     ))
@@ -117,8 +123,8 @@ def normalize_lever(job: dict, company_id: int) -> dict:
 
 def normalize_ashby(job: dict, company_id: int) -> dict:
     """Normalize an Ashby public job-board API posting to common shape."""
-    title = _text(job.get("title"))
-    location = _text(job.get("location"))
+    title = _bounded_text(job.get("title"), 512)
+    location = _bounded_text(job.get("location"), 255)
     description = _strip_html(job.get("descriptionHtml") or "")
     url = _first_text(job.get("jobUrl"), job.get("applyUrl"))
     source_id = _source_id(job)
@@ -140,8 +146,8 @@ def normalize_ashby(job: dict, company_id: int) -> dict:
 
 def normalize_adzuna(job: dict) -> dict:
     """Normalize an Adzuna API result to common shape."""
-    title = _text(job.get("title"))
-    location = _mapping_text(job.get("location"), "display_name")
+    title = _bounded_text(job.get("title"), 512)
+    location = _mapping_text(job.get("location"), "display_name", 255)
     description = _text(job.get("description"))
     salary_min = _optional_float(job.get("salary_min"))
     salary_max = _optional_float(job.get("salary_max"))

@@ -268,6 +268,20 @@ def test_normalizers_tolerate_malformed_top_level_text_fields():
     assert (adzuna["title"], adzuna["description"], adzuna["url"]) == ("", "", "")
 
 
+def test_normalizers_bound_text_to_database_column_limits():
+    result = normalize_greenhouse(
+        {
+            "id": "gh-long-fields",
+            "title": "T" * 513,
+            "location": {"name": "L" * 256},
+        },
+        company_id=1,
+    )
+
+    assert result["title"] == "T" * 512
+    assert result["location"] == "L" * 255
+
+
 def test_adzuna_http_failure_does_not_expose_credentials(monkeypatch, caplog):
     from app.config import settings
     from app.tasks.adzuna import _fetch_results
