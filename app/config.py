@@ -1,3 +1,5 @@
+import re
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
@@ -64,6 +66,14 @@ class Settings(BaseSettings):
     # it only to find where the CPU budget itself starts to bind
     # (evals/cpu-budget.md).
     embed_rate_limit: str = "300/m"
+
+    @field_validator("embed_rate_limit")
+    @classmethod
+    def validate_embed_rate_limit(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized and not re.fullmatch(r"[1-9]\d*/[smh]", normalized):
+            raise ValueError("embed rate limit must use a positive N/s, N/m, or N/h value")
+        return normalized
 
     # --- Paid-LLM spend controls (app/search/budget.py) ---
     # POST /qa/ask is public, unauthenticated and CORS-*, and every uncached

@@ -47,3 +47,16 @@ def test_settings_normalizes_and_validates_log_level():
 
     with pytest.raises(ValidationError, match="log level"):
         Settings(_env_file=None, log_level="verbose")
+
+
+@pytest.mark.parametrize("value", ["300/m", " 50/S ", "1/h", ""])
+def test_settings_accepts_documented_embed_rate_limits(value):
+    configured = Settings(_env_file=None, embed_rate_limit=value)
+
+    assert configured.embed_rate_limit == value.strip().lower()
+
+
+@pytest.mark.parametrize("value", ["0/s", "fast", "10/day", "1.5/m"])
+def test_settings_rejects_invalid_embed_rate_limits(value):
+    with pytest.raises(ValidationError, match="embed rate limit"):
+        Settings(_env_file=None, embed_rate_limit=value)
