@@ -143,8 +143,11 @@ def normalize_adzuna(job: dict) -> dict:
     title = _text(job.get("title"))
     location = _mapping_text(job.get("location"), "display_name")
     description = _text(job.get("description"))
-    salary_min = job.get("salary_min")
-    salary_max = job.get("salary_max")
+    salary_min = _optional_float(job.get("salary_min"))
+    salary_max = _optional_float(job.get("salary_max"))
+    if salary_min is not None and salary_max is not None and salary_min > salary_max:
+        salary_min = None
+        salary_max = None
     url = _text(job.get("redirect_url"))
     source_id = _source_id(job)
     posted_at = _iso_timestamp(job.get("created"))
@@ -155,8 +158,8 @@ def normalize_adzuna(job: dict) -> dict:
         "title": title,
         "location": location,
         "description": description,
-        "salary_min": _optional_float(salary_min),
-        "salary_max": _optional_float(salary_max),
+        "salary_min": salary_min,
+        "salary_max": salary_max,
         "currency": "USD",
         "source": "adzuna",
         "source_id": source_id,

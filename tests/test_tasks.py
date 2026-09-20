@@ -202,6 +202,18 @@ def test_normalize_adzuna_rejects_negative_salary_bounds(salary):
     assert result["salary_max"] is None
 
 
+def test_normalize_adzuna_discards_inverted_salary_range():
+    result = normalize_adzuna({
+        "id": "adzuna-inverted-salary",
+        "title": "Engineer",
+        "salary_min": 150000,
+        "salary_max": 100000,
+    })
+
+    assert result["salary_min"] is None
+    assert result["salary_max"] is None
+
+
 def test_normalizers_tolerate_malformed_nested_provider_metadata():
     greenhouse = normalize_greenhouse(
         {"id": "gh-1", "location": "Remote"}, company_id=1
