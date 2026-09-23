@@ -32,6 +32,10 @@ RRF_K = 60    # smoothing constant — do not tune per-query
 # Pure helpers — no DB, fully unit-testable
 # ---------------------------------------------------------------------------
 
+def escape_like_pattern(value: str) -> str:
+    """Escape user text before placing it inside a SQL LIKE pattern."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 def reciprocal_rank_fusion(ranked_lists: list[list[int]], k: int = RRF_K) -> list[int]:
     """
     Merge ranked ID lists using Reciprocal Rank Fusion.
@@ -104,8 +108,8 @@ def fts_search(
         params["skill"] = skill.lower()
 
     if location:
-        location_clause = "AND p.location ILIKE :location"
-        params["location"] = f"%{location}%"
+        location_clause = "AND p.location ILIKE :location ESCAPE '\\'"
+        params["location"] = f"%{escape_like_pattern(location)}%"
 
     rows = db.execute(
         text(sql.format(skill_join=skill_join, location_clause=location_clause)),
@@ -160,8 +164,8 @@ def vector_search(
         params["skill"] = skill.lower()
 
     if location:
-        location_clause = "AND p.location ILIKE :location"
-        params["location"] = f"%{location}%"
+        location_clause = "AND p.location ILIKE :location ESCAPE '\\'"
+        params["location"] = f"%{escape_like_pattern(location)}%"
 
     rows = db.execute(
         text(sql.format(skill_join=skill_join, location_clause=location_clause)),

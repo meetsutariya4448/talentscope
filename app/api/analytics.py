@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from app.database import get_db
 from app.models import Posting, Skill, PostingSkill, SkillCluster
+from app.search.hybrid import escape_like_pattern
 from datetime import datetime, timedelta
 from typing import Literal, Optional
 import json
@@ -58,9 +59,11 @@ def salary_trends(
     )
 
     if role:
-        q = q.where(Posting.title.ilike(f"%{role}%"))
+        q = q.where(Posting.title.ilike(f"%{escape_like_pattern(role)}%", escape="\\"))
     if location:
-        q = q.where(Posting.location.ilike(f"%{location}%"))
+        q = q.where(
+            Posting.location.ilike(f"%{escape_like_pattern(location)}%", escape="\\")
+        )
 
     q = q.group_by(func.date_trunc("month", Posting.posted_at)).order_by(
         func.date_trunc("month", Posting.posted_at)

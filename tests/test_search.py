@@ -4,13 +4,16 @@ Phase 2 tests: RRF logic (pure), API mode param, hybrid vs FTS integration.
 import numpy as np
 import pytest
 
-from app.search.hybrid import reciprocal_rank_fusion
+from app.search.hybrid import escape_like_pattern, reciprocal_rank_fusion
 from app.models import Company, Posting
 
 
 # ---------------------------------------------------------------------------
 # Pure unit tests — no DB, no model
 # ---------------------------------------------------------------------------
+
+def test_escape_like_pattern_escapes_wildcards_and_escape_character():
+    assert escape_like_pattern(r"50%_remote\team") == r"50\%\_remote\\team"
 
 def test_rrf_item_in_both_lists_scores_higher():
     """An ID in both lists should outscore an ID in only one."""

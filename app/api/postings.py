@@ -5,7 +5,8 @@ from app.api.guards import require_model_ready
 from app.database import get_db
 from app.models import Posting, Company, Skill, PostingSkill
 from app.search.hybrid import (
-    fts_search, vector_search, reciprocal_rank_fusion, fetch_postings_by_ids, TOP_K,
+    escape_like_pattern, fts_search, vector_search, reciprocal_rank_fusion,
+    fetch_postings_by_ids, TOP_K,
 )
 from pydantic import BaseModel
 from datetime import datetime
@@ -115,7 +116,9 @@ def _fts_results(
         )
         query = query.where(Posting.id.in_(skill_subq))
     if location:
-        query = query.where(Posting.location.ilike(f"%{location}%"))
+        query = query.where(
+            Posting.location.ilike(f"%{escape_like_pattern(location)}%", escape="\\")
+        )
 
     total = db.execute(select(func.count()).select_from(query.subquery())).scalar()
     results = db.execute(

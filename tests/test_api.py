@@ -96,6 +96,34 @@ def test_postings_search(client, db):
     assert data["total"] >= 1
 
 
+def test_postings_location_filter_treats_wildcards_literally(client, db):
+    company = Company(name="WildcardCo", slug="wildcardco-api")
+    db.add(company)
+    db.flush()
+    db.add_all([
+        Posting(
+            company_id=company.id,
+            title="Percent Remote Role",
+            location="100% Remote",
+            source="greenhouse",
+            source_id="literal-percent-location",
+        ),
+        Posting(
+            company_id=company.id,
+            title="Ordinary Remote Role",
+            location="Remote",
+            source="greenhouse",
+            source_id="ordinary-location",
+        ),
+    ])
+    db.commit()
+
+    resp = client.get("/postings/", params={"location": "%"})
+
+    assert resp.status_code == 200
+    assert [item["location"] for item in resp.json()["results"]] == ["100% Remote"]
+
+
 def test_skill_demand_endpoint(client):
     resp = client.get("/analytics/skill-demand?window=30d")
     assert resp.status_code == 200
