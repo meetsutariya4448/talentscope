@@ -1,4 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
+from threading import Barrier, Thread
+
+from sqlalchemy.orm import sessionmaker
 
 from app.ingestion.hashing import hash_text, normalize_description
 from app.ingestion.ingest import ingest_posting
@@ -12,6 +15,7 @@ from app.models import (
     PostingSnapshot,
 )
 from app.tasks.panel import _detect_disappeared
+from app.ingestion.panel import get_or_create_collection_run
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +207,42 @@ def test_left_truncated_false_once_monitoring_window_has_passed(db):
     result = ingest_posting(db, data, skill_map={}, company_token="panelco-6")
     posting = db.get(Posting, result.posting_id)
     assert posting.left_truncated is False
+
+
+def test_collection_run_creation_is_safe_under_concurrent_company_checks(db):
+    session_factory = sessionmaker(bind=db.get_bind())
+    collection_date = date(2026, 9, 22)
+    barrier = Barrier(2)
+    run_ids = []
+    errors = []
+
+    def create_run():
+        try:
+            with session_factory() as session:
+                barrier.wait()
+                run = get_or_create_collection_run(
+                    session, "concurrent-source", collection_date
+                )
+                session.commit()
+                run_ids.append(run.id)
+        except Exception as error:
+            errors.append(error)
+
+    threads = [Thread(target=create_run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert not errors
+    assert len(run_ids) == 2
+    assert len(set(run_ids)) == 1
+    assert (
+        db.query(CollectionRun)
+        .filter_by(source="concurrent-source", collection_date=collection_date)
+        .count()
+        == 1
+    )
 
 
 # ---------------------------------------------------------------------------

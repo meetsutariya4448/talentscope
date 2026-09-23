@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -120,20 +121,24 @@ def apply_panel_fields_on_update(db: Session, posting: Posting, raw_description:
 
 
 def get_or_create_collection_run(db: Session, source: str, collection_date) -> CollectionRun:
-    run = (
-        db.query(CollectionRun)
-        .filter_by(source=source, collection_date=collection_date)
-        .first()
-    )
-    if run is None:
-        run = CollectionRun(
+    # Company fetches for one source finish concurrently. A query-then-insert
+    # race here made one successful fetch lose the unique-key race and report
+    # failure after its ingestion transaction had already committed.
+    db.execute(
+        pg_insert(CollectionRun)
+        .values(
             source=source,
             collection_date=collection_date,
             run_at=datetime.now(timezone.utc),
         )
-        db.add(run)
-        db.flush()
-    return run
+        .on_conflict_do_nothing(index_elements=["source", "collection_date"])
+    )
+    return db.execute(
+        select(CollectionRun).where(
+            CollectionRun.source == source,
+            CollectionRun.collection_date == collection_date,
+        )
+    ).scalar_one()
 
 
 def record_company_check(
