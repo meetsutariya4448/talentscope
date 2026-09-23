@@ -1,5 +1,5 @@
 import logging
-from sqlalchemy import select
+from sqlalchemy import select, update
 from app.tasks.celery_app import app as celery_app
 from app.tasks.redis_utils import get_redis as _get_redis
 from app.database import SessionLocal
@@ -57,14 +57,32 @@ def embed_posting(self, posting_id: int):
             return {"posting_id": posting_id, "skipped": True}
 
         content = _build_text(posting)
+        title = posting.title
+        description = posting.description
         # normalize_embeddings=True matches the model's training convention (MNR loss on unit sphere)
         # and keeps inner-product search viable as a future optimisation (dot product == cosine on unit vectors).
         # Cosine similarity is scale-invariant, so vector_cosine_ops ranks identically either way.
         vec = get_model().encode(content, normalize_embeddings=True).tolist()
 
-        # Assign via ORM so pgvector.sqlalchemy.Vector handles type serialization
-        posting.embedding = vec
+        # Publish only if the text encoded above is still current. An older
+        # task can overlap a later ingestion update; without this predicate it
+        # can finish last and overwrite the new content's embedding with a
+        # stale vector.
+        current = update(Posting).where(
+            Posting.id == posting_id,
+            Posting.title == title,
+        )
+        if description is None:
+            current = current.where(Posting.description.is_(None))
+        else:
+            current = current.where(Posting.description == description)
+        result = db.execute(
+            current.values(embedding=vec).execution_options(synchronize_session=False)
+        )
         db.commit()
+        if result.rowcount == 0:
+            logger.info("Skipped stale embedding for posting %s", posting_id)
+            return {"posting_id": posting_id, "skipped": True, "reason": "content_changed"}
         logger.debug(f"Embedded posting {posting_id}")
         return {"posting_id": posting_id, "embedded": True}
     except Exception:

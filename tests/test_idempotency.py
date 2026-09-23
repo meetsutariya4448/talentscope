@@ -7,6 +7,7 @@ and must leave the DB in the same state a single successful run would.
 """
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
@@ -250,6 +251,46 @@ def test_embed_posting_clears_pending_marker_on_completion(db):
         embedding_mod._clear_pending(123)
 
     mock_redis.delete.assert_called_once_with(f"{embedding_mod.PENDING_NS}:123")
+
+
+def test_embed_posting_does_not_publish_vector_for_stale_content(db):
+    import app.tasks.embedding as embedding_mod
+
+    company = _company(db, "stale-embedding")
+    posting = Posting(
+        company_id=company.id,
+        title="Platform Engineer",
+        description="Original requirements",
+        source="greenhouse",
+        source_id="stale-embedding-1",
+    )
+    db.add(posting)
+    db.commit()
+    posting_id = posting.id
+    session_factory = sessionmaker(bind=db.get_bind())
+
+    class EditingModel:
+        def encode(self, _content, normalize_embeddings=True):
+            with session_factory() as concurrent:
+                current = concurrent.get(Posting, posting_id)
+                current.description = "Updated requirements"
+                concurrent.commit()
+            return np.zeros(384)
+
+    with patch.object(embedding_mod, "SessionLocal", session_factory), \
+         patch.object(embedding_mod, "get_model", return_value=EditingModel()), \
+         patch.object(embedding_mod, "_clear_pending"):
+        result = embedding_mod.embed_posting(posting_id)
+
+    db.expire_all()
+    current = db.get(Posting, posting_id)
+    assert result == {
+        "posting_id": posting_id,
+        "skipped": True,
+        "reason": "content_changed",
+    }
+    assert current.description == "Updated requirements"
+    assert current.embedding is None
 
 
 def test_embed_dispatch_failure_releases_pending_claim():
