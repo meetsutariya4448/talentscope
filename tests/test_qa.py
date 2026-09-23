@@ -128,6 +128,17 @@ def test_answer_question_cache_hit():
     MockGroq.assert_not_called()
 
 
+def test_cache_key_changes_with_configured_model(monkeypatch):
+    import app.search.rag as rag
+
+    monkeypatch.setattr(rag, "GROQ_MODEL", "model-a")
+    first = rag._cache_key("What roles are open?", "hybrid")
+    monkeypatch.setattr(rag, "GROQ_MODEL", "model-b")
+    second = rag._cache_key("What roles are open?", "hybrid")
+
+    assert first != second
+
+
 @pytest.mark.parametrize(
     "cached_body",
     [
