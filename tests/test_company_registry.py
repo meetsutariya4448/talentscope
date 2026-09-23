@@ -38,6 +38,8 @@ def test_load_target_companies_accepts_valid_entries(tmp_path):
         "greenhouse:\n  - {token: acme, name: ' Acme'}\n",
         "greenhouse:\n  - {token: acme, name: 'Acme '}\n",
         "greenhouse:\n  - {token: acme, company_name: Acme}\n",
+        "greenhouse: []\ngreenhouse:\n  - {token: acme}\n",
+        "greenhouse:\n  - {token: acme, token: other}\n",
     ],
 )
 def test_load_target_companies_rejects_unsafe_config(contents, tmp_path):

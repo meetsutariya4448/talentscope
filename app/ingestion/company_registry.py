@@ -12,13 +12,37 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "target
 SUPPORTED_SOURCES = {"greenhouse", "lever", "ashby"}
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Safe YAML loader that refuses mappings with duplicate keys."""
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as exc:
+            raise ValueError("target company config contains an invalid mapping key") from exc
+        if duplicate:
+            raise ValueError(f"duplicate YAML mapping key: {key}")
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
 def load_target_companies(path: Path = CONFIG_PATH) -> dict[str, list[dict]]:
     """Human-editable source of truth for which boards we monitor. Grow this
     file toward the project's 200-400 company target by adding entries here —
     verify each token actually returns postings before adding it; a bad token
     just shows up as a permanent 'http_error' and pollutes the health check."""
     with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+        data = yaml.load(f, Loader=_UniqueKeyLoader) or {}
     if not isinstance(data, dict):
         raise ValueError("target company config must be a mapping of sources to entries")
 
