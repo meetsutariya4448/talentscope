@@ -99,15 +99,20 @@ def _on_task_prerun(sender=None, task_id=None, args=None, kwargs=None, **_):
         return
     db = SessionLocal()
     try:
-        db.add(TaskExecution(
-            task_id=task_id,
-            task_name=sender.name,
-            state="STARTED",
-            worker_hostname=_hostname(),
-            args=_safe_json(args),
-            started_at=datetime.now(timezone.utc),
-        ))
-        db.commit()
+        # Celery reuses the same task id when executing a retry. Preserve the
+        # original lifecycle row instead of hitting its unique constraint and
+        # emitting a misleading database error on every retry attempt.
+        exists = db.query(TaskExecution.id).filter_by(task_id=task_id).first()
+        if exists is None:
+            db.add(TaskExecution(
+                task_id=task_id,
+                task_name=sender.name,
+                state="STARTED",
+                worker_hostname=_hostname(),
+                args=_safe_json(args),
+                started_at=datetime.now(timezone.utc),
+            ))
+            db.commit()
     except Exception:
         db.rollback()
         logger.exception("Failed to record task_prerun for %s", task_id)

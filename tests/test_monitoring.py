@@ -223,6 +223,31 @@ def test_retry_prerun_preserves_original_start_time():
         monitoring_mod._task_start_times.pop(task_id, None)
 
 
+def test_retry_prerun_reuses_original_execution_row(db):
+    import app.tasks.monitoring as monitoring_mod
+
+    task_id = "tracked-retry-prerun"
+    sender = _mock_sender("app.tasks.greenhouse.fetch_greenhouse")
+    try:
+        with patch.object(monitoring_mod, "SessionLocal", _session_factory(db)):
+            monitoring_mod._on_task_prerun(
+                sender=sender, task_id=task_id, args=("first",), kwargs={},
+            )
+            original = db.query(TaskExecution).filter_by(task_id=task_id).one()
+            original_started_at = original.started_at
+
+            monitoring_mod._on_task_prerun(
+                sender=sender, task_id=task_id, args=("retry",), kwargs={},
+            )
+
+        rows = db.query(TaskExecution).filter_by(task_id=task_id).all()
+        assert len(rows) == 1
+        assert rows[0].started_at == original_started_at
+        assert "first" in rows[0].args
+    finally:
+        monitoring_mod._task_start_times.pop(task_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Worker heartbeats
 # ---------------------------------------------------------------------------
