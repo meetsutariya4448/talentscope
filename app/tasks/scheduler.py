@@ -1,6 +1,9 @@
 import math
 import logging
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from app.tasks.celery_app import app as celery_app
 from app.tasks.greenhouse import fetch_greenhouse
 from app.tasks.lever import fetch_lever
@@ -57,13 +60,21 @@ def _next_batch(redis_client, key: str, items: list, batch_size: int) -> list:
 
 
 def _get_or_create_company(db, name: str, slug: str) -> int:
-    company = db.query(Company).filter_by(slug=slug).first()
-    if not company:
-        company = Company(name=name, slug=slug)
-        db.add(company)
-        db.commit()
-        db.refresh(company)
-    return company.id
+    # Duplicate beat deliveries can run this concurrently. A query followed by
+    # an insert races on the unique slug; let PostgreSQL arbitrate instead.
+    statement = (
+        pg_insert(Company)
+        .values(name=name, slug=slug)
+        .on_conflict_do_nothing(index_elements=[Company.slug])
+        .returning(Company.id)
+    )
+    company_id = db.execute(statement).scalar_one_or_none()
+    if company_id is None:
+        company_id = db.execute(
+            select(Company.id).where(Company.slug == slug)
+        ).scalar_one()
+    db.commit()
+    return company_id
 
 
 def _dispatch_batch(source: str, cursor_key: str, companies: list, fetch_task) -> dict:

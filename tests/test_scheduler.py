@@ -38,9 +38,40 @@ def _make_db_mock():
     mock_company = MagicMock()
     mock_company.id = 1
     mock_session = MagicMock()
+    mock_session.execute.return_value.scalar_one_or_none.return_value = 1
     mock_session.query.return_value.filter_by.return_value.first.return_value = mock_company
     mock_sessionlocal = MagicMock(return_value=mock_session)
     return mock_sessionlocal, mock_session
+
+
+def test_company_creation_uses_conflict_safe_insert():
+    from app.tasks.scheduler import _get_or_create_company
+    from sqlalchemy.dialects import postgresql
+
+    db = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = 17
+
+    company_id = _get_or_create_company(db, "Acme", "acme")
+
+    assert company_id == 17
+    statement = db.execute.call_args.args[0]
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert "ON CONFLICT (slug) DO NOTHING" in compiled
+    db.commit.assert_called_once_with()
+
+
+def test_company_creation_reads_winner_after_conflict():
+    from app.tasks.scheduler import _get_or_create_company
+
+    insert_result = MagicMock()
+    insert_result.scalar_one_or_none.return_value = None
+    select_result = MagicMock()
+    select_result.scalar_one.return_value = 23
+    db = MagicMock()
+    db.execute.side_effect = [insert_result, select_result]
+
+    assert _get_or_create_company(db, "Acme", "acme") == 23
+    assert db.execute.call_count == 2
 
 
 # ---------------------------------------------------------------------------
