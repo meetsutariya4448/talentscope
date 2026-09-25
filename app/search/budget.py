@@ -49,6 +49,14 @@ RATE_KEY_PREFIX = "qa:rate:"
 BUDGET_TTL_SECONDS = 2 * 24 * 3600
 RATE_WINDOW_SECONDS = 60
 
+_INCREMENT_WITH_TTL = """
+local value = redis.call('INCR', KEYS[1])
+if value == 1 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return value
+"""
+
 
 class Outcome:
     """Why a Q&A request was or wasn't allowed to call the provider."""
@@ -82,6 +90,11 @@ def _rate_key(client_id: str, now: datetime) -> str:
     return f"{RATE_KEY_PREFIX}{client_token}:{int(now.timestamp()) // RATE_WINDOW_SECONDS}"
 
 
+def _increment_with_ttl(redis_client, key: str, ttl: int) -> int:
+    """Increment a counter and attach its first expiry atomically."""
+    return int(redis_client.eval(_INCREMENT_WITH_TTL, 1, key, ttl))
+
+
 def check_rate_limit(client_id: str, redis_client=_UNSET) -> Decision:
     """Fixed-window per-client limit.
 
@@ -105,9 +118,7 @@ def check_rate_limit(client_id: str, redis_client=_UNSET) -> Decision:
     now = datetime.now(timezone.utc)
     key = _rate_key(client_id, now)
     try:
-        count = rc.incr(key)
-        if count == 1:
-            rc.expire(key, RATE_WINDOW_SECONDS)
+        count = _increment_with_ttl(rc, key, RATE_WINDOW_SECONDS)
     except Exception:
         logger.warning("Q&A rate limit: Redis error, not enforcing", exc_info=True)
         return Decision(True, Outcome.ALLOWED)
@@ -146,9 +157,7 @@ def consume_budget(redis_client=_UNSET) -> Decision:
     now = datetime.now(timezone.utc)
     key = _budget_key(now)
     try:
-        used = rc.incr(key)
-        if used == 1:
-            rc.expire(key, BUDGET_TTL_SECONDS)
+        used = _increment_with_ttl(rc, key, BUDGET_TTL_SECONDS)
     except Exception:
         logger.warning("Q&A budget: Redis error while counting", exc_info=True)
         if settings.qa_require_budget_counter:

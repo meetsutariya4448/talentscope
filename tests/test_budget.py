@@ -14,7 +14,7 @@ from app.search import budget as qa_budget
 
 
 class FakeRedis:
-    """Minimal INCR/EXPIRE/GET Redis stand-in with a controllable failure mode."""
+    """Minimal EVAL/GET Redis stand-in with a controllable failure mode."""
 
     def __init__(self, fail=False):
         self.store = {}
@@ -31,6 +31,13 @@ class FakeRedis:
         if self.fail:
             raise ConnectionError("redis down")
         self.expires[key] = ttl
+
+    def eval(self, _script, numkeys, key, ttl):
+        assert numkeys == 1
+        value = self.incr(key)
+        if value == 1:
+            self.expire(key, ttl)
+        return value
 
     def get(self, key):
         if self.fail:
@@ -62,6 +69,18 @@ def test_budget_key_is_given_an_expiry_on_first_use(monkeypatch):
 
     assert len(rc.expires) == 1
     assert list(rc.expires.values())[0] == qa_budget.BUDGET_TTL_SECONDS
+
+
+def test_counter_increment_and_expiry_use_one_atomic_redis_operation():
+    rc = MagicMock()
+    rc.eval.return_value = 1
+
+    result = qa_budget._increment_with_ttl(rc, "counter", 60)
+
+    assert result == 1
+    rc.eval.assert_called_once_with(qa_budget._INCREMENT_WITH_TTL, 1, "counter", 60)
+    rc.incr.assert_not_called()
+    rc.expire.assert_not_called()
 
 
 def test_zero_budget_refuses_every_call(monkeypatch):
