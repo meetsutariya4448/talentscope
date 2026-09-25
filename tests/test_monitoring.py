@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
-from app.models import TaskExecution
+from app.models import FailedTask, TaskExecution
 
 
 def test_http_metrics_record_unhandled_exceptions_as_500():
@@ -246,6 +246,30 @@ def test_retry_prerun_reuses_original_execution_row(db):
         assert "first" in rows[0].args
     finally:
         monitoring_mod._task_start_times.pop(task_id, None)
+
+
+def test_repeated_failure_signal_updates_one_dead_letter_row(db):
+    import app.tasks.monitoring as monitoring_mod
+
+    sender = _mock_sender("app.tasks.embedding.embed_posting")
+    sender.request.retries = 2
+    with (
+        patch.object(monitoring_mod, "SessionLocal", _session_factory(db)),
+        patch.object(monitoring_mod, "record_task_outcome"),
+    ):
+        monitoring_mod._on_task_failure(
+            sender=sender, task_id="failed-once", exception=RuntimeError("first"),
+            args=(1,), kwargs={},
+        )
+        monitoring_mod._on_task_failure(
+            sender=sender, task_id="failed-once", exception=RuntimeError("latest"),
+            args=(1,), kwargs={},
+        )
+
+    rows = db.query(FailedTask).filter_by(task_id="failed-once").all()
+    assert len(rows) == 1
+    assert rows[0].exception == "latest"
+    assert rows[0].retries == 2
 
 
 # ---------------------------------------------------------------------------

@@ -263,6 +263,7 @@ class FailedTask(Base):
     failed_at = Column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
+        UniqueConstraint("task_id", name="uq_failed_tasks_task_id"),
         Index("ix_failed_tasks_task_name", "task_name"),
         Index("ix_failed_tasks_failed_at", "failed_at"),
     )

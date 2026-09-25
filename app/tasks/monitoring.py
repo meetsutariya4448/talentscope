@@ -162,16 +162,21 @@ def _on_task_failure(sender=None, task_id=None, exception=None, traceback=None, 
 
     db = SessionLocal()
     try:
-        db.add(FailedTask(
-            task_id=task_id,
-            task_name=task_name,
-            args=_safe_json(args),
-            kwargs=_safe_json(kwargs),
-            exception=str(exception),
-            traceback=str(traceback) if traceback else None,
-            retries=retries,
-            failed_at=datetime.now(timezone.utc),
-        ))
+        failed_at = datetime.now(timezone.utc)
+        row = db.query(FailedTask).filter_by(task_id=task_id).first() if task_id else None
+        if row is None:
+            row = FailedTask(task_id=task_id)
+            db.add(row)
+        # A failure signal can be redelivered. Update the existing dead-letter
+        # entry so operators see one current record per Celery task id rather
+        # than duplicate rows for the same terminal failure.
+        row.task_name = task_name
+        row.args = _safe_json(args)
+        row.kwargs = _safe_json(kwargs)
+        row.exception = str(exception)
+        row.traceback = str(traceback) if traceback else None
+        row.retries = retries
+        row.failed_at = failed_at
         db.commit()
     except Exception:
         db.rollback()
