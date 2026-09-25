@@ -143,6 +143,19 @@ def test_rate_limit_is_per_client(monkeypatch):
     assert qa_budget.check_rate_limit("1.1.1.1", redis_client=rc).allowed is False
 
 
+def test_rate_limit_keys_do_not_embed_untrusted_client_ids(monkeypatch):
+    monkeypatch.setattr(settings, "qa_rate_limit_per_min", 1)
+    rc = FakeRedis()
+    client_id = "forwarded-client\r\n" + ("x" * 10_000)
+
+    qa_budget.check_rate_limit(client_id, redis_client=rc)
+
+    [key] = rc.store
+    assert client_id not in key
+    assert "\r" not in key and "\n" not in key
+    assert len(key) < 100
+
+
 def test_rate_limit_supplies_a_retry_after(monkeypatch):
     monkeypatch.setattr(settings, "qa_rate_limit_per_min", 1)
     rc = FakeRedis()

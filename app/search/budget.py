@@ -25,6 +25,7 @@ gets sources back rather than an error.
 from __future__ import annotations
 
 import logging
+from hashlib import sha256
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -74,7 +75,11 @@ def _budget_key(now: datetime) -> str:
 
 
 def _rate_key(client_id: str, now: datetime) -> str:
-    return f"{RATE_KEY_PREFIX}{client_id}:{int(now.timestamp()) // RATE_WINDOW_SECONDS}"
+    # The identifier may originate in a proxy header. Hash it so an untrusted
+    # caller cannot create arbitrarily large Redis keys or inject control
+    # characters into the key namespace.
+    client_token = sha256(client_id.encode("utf-8")).hexdigest()
+    return f"{RATE_KEY_PREFIX}{client_token}:{int(now.timestamp()) // RATE_WINDOW_SECONDS}"
 
 
 def check_rate_limit(client_id: str, redis_client=_UNSET) -> Decision:
