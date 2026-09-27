@@ -146,6 +146,24 @@ def test_normalizers_reject_provider_ids_that_exceed_storage_limit():
         normalize_adzuna({"id": "x" * 513, "title": "Engineer"})
 
 
+def test_normalizers_reject_nul_in_identity_fields():
+    with pytest.raises(ValueError, match="NUL"):
+        normalize_adzuna({"id": "job\x001", "title": "Engineer"})
+
+
+def test_normalizers_remove_nul_from_provider_text_fields():
+    result = normalize_adzuna({
+        "id": "safe-id",
+        "title": "Platform\x00 Engineer",
+        "description": "Build\x00 systems",
+        "company": {"display_name": "Acme\x00 Corp"},
+    })
+
+    assert result["title"] == "Platform Engineer"
+    assert result["description"] == "Build systems"
+    assert result["company_name"] == "Acme Corp"
+
+
 def test_normalize_adzuna():
     job = {
         "id": "adzuna-999",

@@ -11,8 +11,13 @@ _NON_CONTENT_HTML_RE = re.compile(
 
 
 def _text(value) -> str:
-    """Return provider text only when its JSON type is actually a string."""
-    return value if isinstance(value, str) else ""
+    """Return database-safe provider text when its JSON type is a string.
+
+    PostgreSQL rejects the NUL code point in text values. One malformed
+    description should not roll back an otherwise valid provider batch, so
+    remove it at the untrusted-input boundary.
+    """
+    return value.replace("\x00", "") if isinstance(value, str) else ""
 
 
 def _bounded_text(value, max_length: int) -> str:
@@ -44,6 +49,10 @@ def _source_id(job: Mapping) -> str:
     normalized = str(value).strip()
     if not normalized:
         raise ValueError("provider job is missing a valid id")
+    if "\x00" in normalized:
+        # Silently removing NUL from an identity field could collapse two
+        # distinct provider IDs onto the same database key.
+        raise ValueError("provider job id contains a NUL character")
     if len(normalized) > 512:
         raise ValueError("provider job id exceeds the 512-character storage limit")
     return normalized
@@ -186,7 +195,8 @@ def _optional_float(value) -> float | None:
 
 
 def _strip_html(html: object) -> str:
-    if not isinstance(html, str) or not html:
+    html = _text(html)
+    if not html:
         return ""
     html = _NON_CONTENT_HTML_RE.sub(" ", html)
     clean = re.sub(r"<[^>]+>", " ", html)
