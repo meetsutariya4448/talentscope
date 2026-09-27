@@ -265,7 +265,10 @@ def _refresh_ingestion_lag() -> None:
     try:
         rows = db.execute(
             select(CollectionRun.source, func.max(CollectionRun.run_at))
-            .where(CollectionRun.status == "ok")
+            # An authoritative board returning an empty list is still a
+            # successful, current check. Excluding it makes a healthy source
+            # look stale precisely when its last open posting closes.
+            .where(CollectionRun.status.in_(("ok", "empty")))
             .group_by(CollectionRun.source)
         ).all()
         now = datetime.now(timezone.utc)

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 
 from app.models import FailedTask, TaskExecution
@@ -57,6 +58,23 @@ def test_ingestion_lag_never_reports_negative_seconds():
     labels.assert_called_once_with(source="greenhouse")
     labels.return_value.set.assert_called_once_with(0.0)
     db.close.assert_called_once_with()
+
+
+def test_ingestion_lag_counts_empty_board_checks_as_successful():
+    import app.database as database
+    import app.observability as observability
+
+    db = MagicMock()
+    db.execute.return_value.all.return_value = []
+
+    with patch.object(database, "SessionLocal", return_value=db):
+        observability._refresh_ingestion_lag()
+
+    statement = db.execute.call_args.args[0]
+    compiled = str(statement.compile(
+        dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+    ))
+    assert "collection_runs.status IN ('ok', 'empty')" in compiled
 
 
 def test_redis_client_bounds_connect_and_read_timeouts():
