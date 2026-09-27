@@ -304,6 +304,40 @@ def test_record_worker_heartbeats_skips_when_redis_unavailable():
     assert result == {"workers": 0}
 
 
+def test_record_worker_heartbeats_treats_control_bus_failure_as_no_response():
+    import app.tasks.monitoring as monitoring_mod
+
+    mock_redis = MagicMock()
+    mock_inspect = MagicMock()
+    mock_inspect.ping.side_effect = TimeoutError("control bus unavailable")
+
+    with patch.object(monitoring_mod, "_get_redis", return_value=mock_redis), \
+         patch.object(monitoring_mod.celery_app.control, "inspect", return_value=mock_inspect):
+        result = monitoring_mod.record_worker_heartbeats()
+
+    assert result == {"workers": 0}
+    mock_redis.set.assert_not_called()
+
+
+def test_record_worker_heartbeats_counts_only_persisted_responses():
+    import app.tasks.monitoring as monitoring_mod
+
+    mock_redis = MagicMock()
+    mock_redis.set.side_effect = [ConnectionError("write failed"), True]
+    mock_inspect = MagicMock()
+    mock_inspect.ping.return_value = {
+        "worker1@host": {"ok": "pong"},
+        "worker2@host": {"ok": "pong"},
+    }
+
+    with patch.object(monitoring_mod, "_get_redis", return_value=mock_redis), \
+         patch.object(monitoring_mod.celery_app.control, "inspect", return_value=mock_inspect):
+        result = monitoring_mod.record_worker_heartbeats()
+
+    assert result == {"workers": 1}
+    assert mock_redis.set.call_count == 2
+
+
 def test_get_worker_heartbeats_reads_back_live_keys():
     import app.tasks.monitoring as monitoring_mod
 

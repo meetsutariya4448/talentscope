@@ -225,11 +225,28 @@ def record_worker_heartbeats():
         logger.warning("record_worker_heartbeats: Redis unavailable, skipping")
         return {"workers": 0}
 
-    pings = celery_app.control.inspect(timeout=2).ping() or {}
+    try:
+        pings = celery_app.control.inspect(timeout=2).ping() or {}
+    except Exception:
+        # A control-bus timeout is itself evidence that no worker heartbeat
+        # was observed. Let existing TTL keys age out instead of turning this
+        # monitoring task into another failed Celery job.
+        logger.warning("record_worker_heartbeats: worker ping failed", exc_info=True)
+        return {"workers": 0}
+
     now = datetime.now(timezone.utc).isoformat()
+    recorded = 0
     for hostname in pings:
-        rc.set(f"{HEARTBEAT_NS}:{hostname}", now, ex=HEARTBEAT_TTL)
-    return {"workers": len(pings)}
+        try:
+            rc.set(f"{HEARTBEAT_NS}:{hostname}", now, ex=HEARTBEAT_TTL)
+            recorded += 1
+        except Exception:
+            logger.warning(
+                "record_worker_heartbeats: failed to persist heartbeat for %s",
+                hostname,
+                exc_info=True,
+            )
+    return {"workers": recorded}
 
 
 def get_worker_heartbeats() -> dict[str, str]:
