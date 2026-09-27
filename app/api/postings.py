@@ -128,7 +128,10 @@ def _fts_results(
 
     total = db.execute(select(func.count()).select_from(query.subquery())).scalar()
     results = db.execute(
-        query.order_by(Posting.posted_at.desc().nullslast())
+        # Provider timestamps commonly tie (and may be null). Use the primary
+        # key as a stable tiebreaker so adjacent offset pages cannot reshuffle
+        # the same rows between requests.
+        query.order_by(Posting.posted_at.desc().nullslast(), Posting.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
