@@ -121,6 +121,15 @@ def test_normalizers_ignore_non_timestamp_provider_values():
     assert adzuna["posted_at"] is None
 
 
+@pytest.mark.parametrize("created_at", [-1, float("nan"), float("inf")])
+def test_lever_normalizer_rejects_invalid_epoch_timestamps(created_at):
+    result = normalize_lever(
+        {"id": "lever-invalid-time", "createdAt": created_at}, company_id=1
+    )
+
+    assert result["posted_at"] is None
+
+
 @pytest.mark.parametrize(
     ("normalizer", "job", "args"),
     [

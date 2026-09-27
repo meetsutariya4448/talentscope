@@ -76,6 +76,8 @@ def _epoch_millis_timestamp(value) -> datetime | None:
     """Parse numeric epoch milliseconds without accepting booleans."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
+    if not math.isfinite(value) or value < 0:
+        return None
     try:
         return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
     except (OverflowError, OSError, ValueError):
