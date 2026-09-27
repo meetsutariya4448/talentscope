@@ -34,9 +34,15 @@ class PostingOut(BaseModel):
 
 @router.get("/", response_model=dict)
 def search_postings(
-    q: str = Query(default="", description="Full-text search query"),
-    skill: str = Query(default="", description="Filter by skill name"),
-    location: str = Query(default="", description="Filter by location (partial match)"),
+    q: str = Query(
+        default="", max_length=500, description="Full-text search query"
+    ),
+    skill: str = Query(
+        default="", max_length=128, description="Filter by skill name"
+    ),
+    location: str = Query(
+        default="", max_length=255, description="Filter by location (partial match)"
+    ),
     mode: Literal["fts", "vector", "hybrid"] = Query(
         default="fts",
         description="Search mode: fts (full-text), vector (semantic), hybrid (RRF fusion)",
