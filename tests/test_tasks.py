@@ -33,6 +33,22 @@ def test_extract_skills_empty():
     assert extract_skills(None) == []
 
 
+def test_skill_catalog_initialization_is_conflict_safe():
+    from app.ingestion.skills import ensure_skills
+    from sqlalchemy.dialects import postgresql
+
+    insert_result = MagicMock()
+    select_result = MagicMock()
+    select_result.all.return_value = [("Python", 1), ("Go", 2)]
+    db = MagicMock()
+    db.execute.side_effect = [insert_result, select_result]
+
+    assert ensure_skills(db) == {"Python": 1, "Go": 2}
+    statement = db.execute.call_args_list[0].args[0]
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert "ON CONFLICT (name) DO NOTHING" in compiled
+
+
 def test_strip_html():
     html = "<p>Hello <strong>world</strong></p>"
     assert _strip_html(html) == "Hello world"

@@ -4,11 +4,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from app.tasks.celery_app import app as celery_app
 from app.database import SessionLocal
-from app.models import Company, Skill
+from app.models import Company
 from app.ingestion.normalizer import normalize_adzuna
 from app.ingestion.provider_payloads import extract_job_list
 from app.ingestion.ingest import ingest_posting
-from app.ingestion.skills import SKILLS
+from app.ingestion.skills import ensure_skills
 from app.config import settings
 import logging
 
@@ -46,18 +46,6 @@ def _get_or_create_company(db: Session, name: str) -> int:
             select(Company.id).where(Company.slug == slug)
         ).scalar_one()
     return company_id
-
-
-def _ensure_skills(db):
-    skill_map = {}
-    for skill_name, category in SKILLS:
-        skill = db.query(Skill).filter_by(name=skill_name).first()
-        if not skill:
-            skill = Skill(name=skill_name, category=category)
-            db.add(skill)
-            db.flush()
-        skill_map[skill_name] = skill.id
-    return skill_map
 
 
 def _fetch_results(query: str, page: int) -> list[dict]:
@@ -110,7 +98,7 @@ def fetch_adzuna(self, query: str, page: int = 1):
     inserted_ids: list[int] = []
     changed_ids: list[int] = []
     try:
-        skill_map = _ensure_skills(db)
+        skill_map = ensure_skills(db)
         for job in results:
             data = normalize_adzuna(job)
             company_name = data.pop("company_name", "") or "Unknown"

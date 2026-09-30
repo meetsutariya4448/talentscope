@@ -1,5 +1,11 @@
 import re
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+
+from app.models import Skill
+
 SKILLS = [
     # Languages
     ("Python", "language"), ("JavaScript", "language"), ("TypeScript", "language"),
@@ -49,6 +55,20 @@ SKILLS = [
     ("OAuth", "security"), ("JWT", "security"), ("Kafka", "data"),
     ("Flink", "data"), ("Pulsar", "data"), ("ZooKeeper", "infra"),
 ]
+
+
+def ensure_skills(db: Session) -> dict[str, int]:
+    """Create the shared skill catalog without racing concurrent fetch tasks."""
+    db.execute(
+        pg_insert(Skill)
+        .values([{"name": name, "category": category} for name, category in SKILLS])
+        .on_conflict_do_nothing(index_elements=[Skill.name])
+    )
+    names = [name for name, _ in SKILLS]
+    rows = db.execute(
+        select(Skill.name, Skill.id).where(Skill.name.in_(names))
+    ).all()
+    return dict(rows)
 
 
 def extract_skills(text: str) -> list[str]:

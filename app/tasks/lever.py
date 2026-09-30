@@ -2,29 +2,16 @@ import httpx
 from sqlalchemy.orm import Session
 from app.tasks.celery_app import app as celery_app
 from app.database import SessionLocal
-from app.models import Skill
 from app.ingestion.normalizer import normalize_lever
 from app.ingestion.provider_payloads import extract_job_list
 from app.ingestion.ingest import ingest_posting
 from app.ingestion.panel import record_company_check
-from app.ingestion.skills import SKILLS
+from app.ingestion.skills import ensure_skills
 import logging
 
 logger = logging.getLogger(__name__)
 
 LEVER_BASE = "https://api.lever.co/v0/postings/{slug}?mode=json&limit=500"
-
-
-def _ensure_skills(db):
-    skill_map = {}
-    for skill_name, category in SKILLS:
-        skill = db.query(Skill).filter_by(name=skill_name).first()
-        if not skill:
-            skill = Skill(name=skill_name, category=category)
-            db.add(skill)
-            db.flush()
-        skill_map[skill_name] = skill.id
-    return skill_map
 
 
 @celery_app.task(
@@ -63,7 +50,7 @@ def fetch_lever(self, company_slug: str, company_id: int):
     inserted_ids: list[int] = []
     changed_ids: list[int] = []
     try:
-        skill_map = _ensure_skills(db)
+        skill_map = ensure_skills(db)
         for job in jobs:
             data = normalize_lever(job, company_id)
             result = ingest_posting(db, data, skill_map, company_token=company_slug)
