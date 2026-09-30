@@ -42,11 +42,17 @@ def skill_demand(
 
 @router.get("/salary-trends")
 def salary_trends(
-    role: str = Query(default="", description="Role keyword filter"),
-    location: str = Query(default="", description="Location filter"),
+    role: str = Query(
+        default="", max_length=500, description="Role keyword filter"
+    ),
+    location: str = Query(
+        default="", max_length=255, description="Location filter"
+    ),
     db: Session = Depends(get_db),
 ):
     """Return average salary by month for postings that have salary data."""
+    role = role.strip()
+    location = location.strip()
     q = (
         select(
             func.date_trunc("month", Posting.posted_at).label("month"),

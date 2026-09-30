@@ -4,6 +4,8 @@ from datetime import datetime
 from app.api.postings import _row_to_dict
 from decimal import Decimal
 from unittest.mock import MagicMock
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 def test_posting_response_preserves_zero_salary_bounds():
@@ -34,6 +36,20 @@ def test_salary_trends_preserves_zero_averages():
 
     assert result["trends"][0]["avg_salary_min"] == 0.0
     assert result["trends"][0]["avg_salary_max"] == 0.0
+
+
+def test_salary_trends_rejects_unbounded_filters_before_querying_database():
+    from app.api import analytics
+
+    app = FastAPI()
+    app.include_router(analytics.router, prefix="/analytics")
+    with TestClient(app) as client:
+        assert client.get(
+            "/analytics/salary-trends", params={"role": "r" * 501}
+        ).status_code == 422
+        assert client.get(
+            "/analytics/salary-trends", params={"location": "l" * 256}
+        ).status_code == 422
 
 
 def test_cluster_summary_preserves_zero_silhouette():
