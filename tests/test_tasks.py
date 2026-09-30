@@ -337,6 +337,33 @@ def test_adzuna_http_failure_does_not_expose_credentials(monkeypatch, caplog):
     assert secret not in caplog.text
 
 
+def test_adzuna_company_creation_uses_conflict_safe_insert():
+    from app.tasks.adzuna import _get_or_create_company
+    from sqlalchemy.dialects import postgresql
+
+    db = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = 17
+
+    assert _get_or_create_company(db, "Acme Corporation") == 17
+    statement = db.execute.call_args.args[0]
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert "ON CONFLICT (slug) DO NOTHING" in compiled
+
+
+def test_adzuna_company_creation_reads_winner_after_conflict():
+    from app.tasks.adzuna import _get_or_create_company
+
+    insert_result = MagicMock()
+    insert_result.scalar_one_or_none.return_value = None
+    select_result = MagicMock()
+    select_result.scalar_one.return_value = 23
+    db = MagicMock()
+    db.execute.side_effect = [insert_result, select_result]
+
+    assert _get_or_create_company(db, "Acme Corporation") == 23
+    assert db.execute.call_count == 2
+
+
 def test_fetch_greenhouse_task_eager(db):
     """Test greenhouse task with mocked HTTP call and mocked DB session."""
     from app.models import Company

@@ -1,4 +1,6 @@
 import httpx
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from app.tasks.celery_app import app as celery_app
 from app.database import SessionLocal
@@ -32,12 +34,18 @@ ADZUNA_QUERIES = [
 
 def _get_or_create_company(db: Session, name: str) -> int:
     slug = name.lower().strip().replace(" ", "-")[:255]
-    company = db.query(Company).filter_by(slug=slug).first()
-    if not company:
-        company = Company(name=name, slug=slug)
-        db.add(company)
-        db.flush()
-    return company.id
+    statement = (
+        pg_insert(Company)
+        .values(name=name, slug=slug)
+        .on_conflict_do_nothing(index_elements=[Company.slug])
+        .returning(Company.id)
+    )
+    company_id = db.execute(statement).scalar_one_or_none()
+    if company_id is None:
+        company_id = db.execute(
+            select(Company.id).where(Company.slug == slug)
+        ).scalar_one()
+    return company_id
 
 
 def _ensure_skills(db):
