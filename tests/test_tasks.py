@@ -308,6 +308,12 @@ def test_normalizers_bound_text_to_database_column_limits():
     assert result["title"] == "T" * 512
     assert result["location"] == "L" * 255
 
+    adzuna = normalize_adzuna({
+        "id": "adzuna-long-company",
+        "company": {"display_name": "C" * 256},
+    })
+    assert adzuna["company_name"] == "C" * 255
+
 
 def test_adzuna_http_failure_does_not_expose_credentials(monkeypatch, caplog):
     from app.config import settings

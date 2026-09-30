@@ -168,7 +168,7 @@ def normalize_adzuna(job: dict) -> dict:
     url = _text(job.get("redirect_url"))
     source_id = _source_id(job)
     posted_at = _iso_timestamp(job.get("created"))
-    company_name = _mapping_text(job.get("company"), "display_name")
+    company_name = _mapping_text(job.get("company"), "display_name", 255)
     return {
         "company_id": None,  # Adzuna postings don't always map to our company list
         "company_name": company_name,
