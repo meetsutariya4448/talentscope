@@ -10,6 +10,7 @@ from app.models import MonitoredCompany
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "target_companies.yml"
 SUPPORTED_SOURCES = {"greenhouse", "lever", "ashby"}
+MAX_COMPANY_FIELD_LENGTH = 255
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -34,6 +35,16 @@ _UniqueKeyLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
     _construct_unique_mapping,
 )
+
+
+def _valid_company_text(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and value == value.strip()
+        and len(value) <= MAX_COMPANY_FIELD_LENGTH
+        and not any(ord(character) < 32 or ord(character) == 127 for character in value)
+    )
 
 
 def load_target_companies(path: Path = CONFIG_PATH) -> dict[str, list[dict]]:
@@ -67,18 +78,18 @@ def load_target_companies(path: Path = CONFIG_PATH) -> dict[str, list[dict]]:
                     f"target company entry for {source} has unsupported fields: {fields}"
                 )
             token = entry.get("token")
-            if not isinstance(token, str) or not token.strip() or token != token.strip():
-                raise ValueError(f"target company token for {source} must be a trimmed string")
+            if not _valid_company_text(token):
+                raise ValueError(
+                    f"target company token for {source} must be a trimmed, safe string "
+                    f"of at most {MAX_COMPANY_FIELD_LENGTH} characters"
+                )
             if token in seen_tokens:
                 raise ValueError(f"duplicate target company token for {source}: {token}")
             name = entry.get("name")
-            if name is not None and (
-                not isinstance(name, str)
-                or not name.strip()
-                or name != name.strip()
-            ):
+            if name is not None and not _valid_company_text(name):
                 raise ValueError(
-                    f"target company name for {source}/{token} must be a trimmed string"
+                    f"target company name for {source}/{token} must be a trimmed, safe "
+                    f"string of at most {MAX_COMPANY_FIELD_LENGTH} characters"
                 )
             seen_tokens.add(token)
             validated_entries.append(entry)
