@@ -39,6 +39,8 @@ def test_load_target_companies_accepts_valid_entries(tmp_path):
         "greenhouse:\n  - {token: acme, name: 'Acme '}\n",
         'greenhouse:\n  - {token: "acme\\0corp"}\n',
         'greenhouse:\n  - {token: "acme\\ncorp"}\n',
+        "greenhouse:\n  - {token: 'acme\u202ecorp'}\n",
+        "greenhouse:\n  - {token: acme, name: 'Acme\u2060Corp'}\n",
         f"greenhouse:\n  - {{token: {'x' * 256}}}\n",
         f"greenhouse:\n  - {{token: acme, name: {'x' * 256}}}\n",
         "greenhouse:\n  - {token: acme, company_name: Acme}\n",

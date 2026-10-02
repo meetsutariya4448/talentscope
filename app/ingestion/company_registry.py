@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,7 +44,7 @@ def _valid_company_text(value: object) -> bool:
         and bool(value.strip())
         and value == value.strip()
         and len(value) <= MAX_COMPANY_FIELD_LENGTH
-        and not any(ord(character) < 32 or ord(character) == 127 for character in value)
+        and not any(unicodedata.category(character).startswith("C") for character in value)
     )
 
 
