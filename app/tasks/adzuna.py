@@ -1,3 +1,4 @@
+import hashlib
 import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -33,19 +34,43 @@ ADZUNA_QUERIES = [
 
 
 def _get_or_create_company(db: Session, name: str) -> int:
-    slug = name.lower().strip().replace(" ", "-")[:255]
+    base_slug = name.lower().strip().replace(" ", "-")[:255]
+    company_id = _insert_company(db, name, base_slug)
+    if company_id is not None:
+        return company_id
+
+    existing_id, existing_name = db.execute(
+        select(Company.id, Company.name).where(Company.slug == base_slug)
+    ).one()
+    if existing_name == name:
+        return existing_id
+
+    # Names such as "A B" and "A-B" share the readable base slug. Preserve
+    # that existing company and give the distinct name a deterministic suffix
+    # instead of silently attaching its postings to the wrong company.
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    suffix = f"-{digest}"
+    collision_slug = f"{base_slug[:255 - len(suffix)]}{suffix}"
+    company_id = _insert_company(db, name, collision_slug)
+    if company_id is not None:
+        return company_id
+
+    return db.execute(
+        select(Company.id).where(
+            Company.slug == collision_slug,
+            Company.name == name,
+        )
+    ).scalar_one()
+
+
+def _insert_company(db: Session, name: str, slug: str) -> int | None:
     statement = (
         pg_insert(Company)
         .values(name=name, slug=slug)
         .on_conflict_do_nothing(index_elements=[Company.slug])
         .returning(Company.id)
     )
-    company_id = db.execute(statement).scalar_one_or_none()
-    if company_id is None:
-        company_id = db.execute(
-            select(Company.id).where(Company.slug == slug)
-        ).scalar_one()
-    return company_id
+    return db.execute(statement).scalar_one_or_none()
 
 
 def _fetch_results(query: str, page: int) -> list[dict]:
