@@ -108,6 +108,28 @@ def test_normalize_lever():
     assert result["posted_at"].tzinfo is timezone.utc
 
 
+def test_normalizers_fall_back_from_blank_or_nul_only_preferred_fields():
+    lever = normalize_lever(
+        {
+            "id": "lever-fallback",
+            "descriptionPlain": " \x00 ",
+            "description": "Valid fallback description",
+        },
+        company_id=2,
+    )
+    ashby = normalize_ashby(
+        {
+            "id": "ashby-fallback",
+            "jobUrl": "\x00 ",
+            "applyUrl": "https://example.test/apply",
+        },
+        company_id=3,
+    )
+
+    assert lever["description"] == "Valid fallback description"
+    assert ashby["url"] == "https://example.test/apply"
+
+
 def test_normalize_lever_converts_numeric_source_id_to_string():
     result = normalize_lever({"id": 123, "text": "Engineer"}, company_id=2)
 

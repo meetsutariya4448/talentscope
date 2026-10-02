@@ -27,8 +27,12 @@ def _bounded_text(value, max_length: int) -> str:
 
 
 def _first_text(*values) -> str:
-    """Return the first nonempty string without trusting truthy non-strings."""
-    return next((value for value in values if isinstance(value, str) and value), "")
+    """Return the first meaningful, database-safe provider string."""
+    for value in values:
+        text = _text(value)
+        if text.strip():
+            return text
+    return ""
 
 
 def _mapping_text(value, key: str, max_length: int | None = None) -> str:
