@@ -1,5 +1,6 @@
 import math
 import re
+import unicodedata
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from html import unescape
@@ -46,13 +47,16 @@ def _source_id(job: Mapping) -> str:
     # Python container representation and can collapse unrelated postings.
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ValueError("provider job is missing a valid id")
-    normalized = str(value).strip()
-    if not normalized:
+    normalized = str(value)
+    if not normalized.strip():
         raise ValueError("provider job is missing a valid id")
-    if "\x00" in normalized:
-        # Silently removing NUL from an identity field could collapse two
-        # distinct provider IDs onto the same database key.
-        raise ValueError("provider job id contains a NUL character")
+    if normalized != normalized.strip():
+        raise ValueError("provider job id must not contain edge whitespace")
+    if any(unicodedata.category(character).startswith("C") for character in normalized):
+        # Silently removing or preserving format/control characters in an
+        # identity field can collapse visually identical IDs or make them
+        # impossible to diagnose in logs.
+        raise ValueError("provider job id contains a control or format character")
     if len(normalized) > 512:
         raise ValueError("provider job id exceeds the 512-character storage limit")
     return normalized

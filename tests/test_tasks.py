@@ -171,9 +171,13 @@ def test_normalizers_reject_provider_ids_that_exceed_storage_limit():
         normalize_adzuna({"id": "x" * 513, "title": "Engineer"})
 
 
-def test_normalizers_reject_nul_in_identity_fields():
-    with pytest.raises(ValueError, match="NUL"):
-        normalize_adzuna({"id": "job\x001", "title": "Engineer"})
+@pytest.mark.parametrize(
+    "source_id",
+    [" job-1", "job-1 ", "job\x001", "job\n1", "job\u202e1"],
+)
+def test_normalizers_reject_ambiguous_identity_fields(source_id):
+    with pytest.raises(ValueError, match="whitespace|control|format"):
+        normalize_adzuna({"id": source_id, "title": "Engineer"})
 
 
 def test_normalizers_remove_nul_from_provider_text_fields():
