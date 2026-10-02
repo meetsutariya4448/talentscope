@@ -9,6 +9,7 @@ from html import unescape
 _NON_CONTENT_HTML_RE = re.compile(
     r"<(script|style)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
 )
+_MAX_STORED_SALARY = 9_999_999_999.99  # Posting salary columns are NUMERIC(12, 2).
 
 
 def _text(value) -> str:
@@ -201,7 +202,11 @@ def _optional_float(value) -> float | None:
         parsed = float(value)
     except (TypeError, ValueError):
         return None
-    return parsed if math.isfinite(parsed) and parsed >= 0 else None
+    return (
+        parsed
+        if math.isfinite(parsed) and 0 <= parsed <= _MAX_STORED_SALARY
+        else None
+    )
 
 
 def _strip_html(html: object) -> str:
