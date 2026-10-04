@@ -46,6 +46,13 @@ def fetch_ashby(self, board_name: str, company_id: int):
             http_status=http_status, postings_seen=0, error_detail=str(e),
         )
         raise
+    except ValueError as e:
+        logger.warning("Ashby returned an invalid payload for %s: %s", board_name, e)
+        record_company_check(
+            "ashby", board_name, status="http_error",
+            http_status=http_status, postings_seen=0, error_detail=str(e),
+        )
+        raise
 
     db: Session = SessionLocal()
     inserted_ids: list[int] = []

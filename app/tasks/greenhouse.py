@@ -46,6 +46,13 @@ def fetch_greenhouse(self, board_token: str, company_id: int):
             http_status=http_status, postings_seen=0, error_detail=str(e),
         )
         raise
+    except ValueError as e:
+        logger.warning("Greenhouse returned an invalid payload for %s: %s", board_token, e)
+        record_company_check(
+            "greenhouse", board_token, status="http_error",
+            http_status=http_status, postings_seen=0, error_detail=str(e),
+        )
+        raise
 
     db: Session = SessionLocal()
     inserted_ids: list[int] = []

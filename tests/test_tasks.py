@@ -437,6 +437,41 @@ def test_adzuna_company_creation_disambiguates_colliding_slugs():
     assert len(collision_statement.compile().params["slug"]) <= 255
 
 
+@pytest.mark.parametrize(
+    ("module_name", "task_name", "source"),
+    [
+        ("greenhouse", "fetch_greenhouse", "greenhouse"),
+        ("lever", "fetch_lever", "lever"),
+        ("ashby", "fetch_ashby", "ashby"),
+    ],
+)
+def test_authoritative_fetches_record_invalid_provider_payloads(
+    module_name, task_name, source
+):
+    module = __import__(f"app.tasks.{module_name}", fromlist=[task_name])
+    task = getattr(module, task_name)
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"unexpected": "shape"}
+    client = MagicMock()
+    client.__enter__.return_value.get.return_value = response
+
+    with (
+        patch.object(module.httpx, "Client", return_value=client),
+        patch.object(module, "record_company_check") as record_check,
+        pytest.raises(ValueError, match="provider"),
+    ):
+        task.run.__wrapped__("invalid-board", 1)
+
+    record_check.assert_called_once_with(
+        source,
+        "invalid-board",
+        status="http_error",
+        http_status=200,
+        postings_seen=0,
+        error_detail="provider job collection must be a list",
+    )
+
+
 def test_fetch_greenhouse_task_eager(db):
     """Test greenhouse task with mocked HTTP call and mocked DB session."""
     from app.models import Company

@@ -45,6 +45,13 @@ def fetch_lever(self, company_slug: str, company_id: int):
             http_status=http_status, postings_seen=0, error_detail=str(e),
         )
         raise
+    except ValueError as e:
+        logger.warning("Lever returned an invalid payload for %s: %s", company_slug, e)
+        record_company_check(
+            "lever", company_slug, status="http_error",
+            http_status=http_status, postings_seen=0, error_detail=str(e),
+        )
+        raise
 
     db: Session = SessionLocal()
     inserted_ids: list[int] = []
