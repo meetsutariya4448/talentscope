@@ -11,6 +11,19 @@ import json
 router = APIRouter()
 
 
+def _decode_top_skills(value: str | None) -> list[str]:
+    """Keep one corrupt historical cluster row from breaking the endpoint."""
+    try:
+        decoded = json.loads(value or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(decoded, list) or not all(
+        isinstance(skill, str) for skill in decoded
+    ):
+        return []
+    return decoded
+
+
 @router.get("/skill-demand")
 def skill_demand(
     window: Literal["7d", "30d", "90d", "180d", "365d", "all"] = Query(
@@ -138,7 +151,7 @@ def get_clusters(db: Session = Depends(get_db)):
                 "cluster_id": c.cluster_id,
                 "label":      c.label,
                 "size":       c.size,
-                "top_skills": json.loads(c.top_skills or "[]"),
+                "top_skills": _decode_top_skills(c.top_skills),
             }
             for c in clusters
         ],

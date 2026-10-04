@@ -75,6 +75,36 @@ def test_cluster_summary_preserves_zero_silhouette():
     assert result["silhouette"] == 0.0
 
 
+def test_cluster_summary_degrades_corrupt_top_skills_to_empty_list():
+    from app.api.analytics import get_clusters
+
+    run_at = datetime(2026, 1, 1)
+    latest_result = MagicMock()
+    latest_result.scalar.return_value = run_at
+    cluster = MagicMock(
+        cluster_id=1,
+        label="Backend",
+        size=2,
+        top_skills="{not-json",
+        silhouette=Decimal("0.5"),
+    )
+    clusters_result = MagicMock()
+    clusters_result.scalars.return_value.all.return_value = [cluster]
+    db = MagicMock()
+    db.execute.side_effect = [latest_result, clusters_result]
+
+    result = get_clusters(db=db)
+
+    assert result["clusters"][0]["top_skills"] == []
+
+
+def test_cluster_summary_rejects_non_string_skill_payloads():
+    from app.api.analytics import _decode_top_skills
+
+    assert _decode_top_skills('{"python": 3}') == []
+    assert _decode_top_skills('["python", 3]') == []
+
+
 def test_health(client):
     resp = client.get("/health")
     assert resp.status_code == 200
