@@ -112,6 +112,13 @@ def _session_factory(db):
     return sessionmaker(bind=db.get_bind())
 
 
+def test_safe_json_rejects_nonfinite_numbers():
+    import app.tasks.monitoring as monitoring_mod
+
+    assert monitoring_mod._safe_json({"value": float("nan")}) is None
+    assert monitoring_mod._safe_json({"value": float("inf")}) is None
+
+
 # ---------------------------------------------------------------------------
 # task_prerun / task_postrun / task_retry: explicit state tracking
 # ---------------------------------------------------------------------------

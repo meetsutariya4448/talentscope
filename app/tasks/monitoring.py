@@ -55,7 +55,10 @@ _TRACK_STATE_FOR = {
 
 def _safe_json(value) -> str | None:
     try:
-        return json.dumps(value, default=str)
+        # Stored task arguments are documented as JSON. Python's encoder
+        # otherwise emits NaN/Infinity tokens, which are not valid JSON and
+        # break strict consumers of the observability table.
+        return json.dumps(value, default=str, allow_nan=False)
     except Exception:
         return None
 
