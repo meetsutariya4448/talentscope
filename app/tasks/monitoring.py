@@ -256,10 +256,15 @@ def get_worker_heartbeats() -> dict[str, str]:
     if rc is None:
         return {}
     result: dict[str, str] = {}
-    for key in rc.scan_iter(match=f"{HEARTBEAT_NS}:*", count=100):
-        key_str = key.decode() if isinstance(key, bytes) else key
-        hostname = key_str[len(f"{HEARTBEAT_NS}:"):]
-        val = rc.get(key_str)
-        if val is not None:
-            result[hostname] = val.decode() if isinstance(val, bytes) else val
+    try:
+        for key in rc.scan_iter(match=f"{HEARTBEAT_NS}:*", count=100):
+            key_str = key.decode() if isinstance(key, bytes) else key
+            hostname = key_str[len(f"{HEARTBEAT_NS}:"):]
+            val = rc.get(key_str)
+            if val is not None:
+                result[hostname] = val.decode() if isinstance(val, bytes) else val
+    except Exception:
+        # This feeds an observability gauge. A transient Redis read failure
+        # must not fail the entire metrics refresh task.
+        logger.warning("Failed to read worker heartbeats", exc_info=True)
     return result

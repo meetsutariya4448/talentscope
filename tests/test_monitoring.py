@@ -378,3 +378,13 @@ def test_get_worker_heartbeats_empty_when_redis_unavailable():
 
     with patch.object(monitoring_mod, "_get_redis", return_value=None):
         assert monitoring_mod.get_worker_heartbeats() == {}
+
+
+def test_get_worker_heartbeats_degrades_cleanly_on_scan_failure():
+    import app.tasks.monitoring as monitoring_mod
+
+    mock_redis = MagicMock()
+    mock_redis.scan_iter.side_effect = ConnectionError("redis disconnected")
+
+    with patch.object(monitoring_mod, "_get_redis", return_value=mock_redis):
+        assert monitoring_mod.get_worker_heartbeats() == {}
