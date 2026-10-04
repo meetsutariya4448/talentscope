@@ -83,6 +83,18 @@ def test_counter_increment_and_expiry_use_one_atomic_redis_operation():
     rc.expire.assert_not_called()
 
 
+def test_budget_fails_closed_for_a_negative_redis_counter(monkeypatch):
+    monkeypatch.setattr(settings, "qa_daily_budget", 10)
+    monkeypatch.setattr(settings, "qa_require_budget_counter", True)
+    rc = MagicMock()
+    rc.eval.return_value = -4
+
+    decision = qa_budget.consume_budget(redis_client=rc)
+
+    assert decision.allowed is False
+    assert decision.outcome == qa_budget.Outcome.COUNTER_UNAVAILABLE
+
+
 def test_zero_budget_refuses_every_call(monkeypatch):
     """0 is a usable setting: retrieval stays up, generation is off for the day."""
     monkeypatch.setattr(settings, "qa_daily_budget", 0)

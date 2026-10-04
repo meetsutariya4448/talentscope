@@ -92,7 +92,13 @@ def _rate_key(client_id: str, now: datetime) -> str:
 
 def _increment_with_ttl(redis_client, key: str, ttl: int) -> int:
     """Increment a counter and attach its first expiry atomically."""
-    return int(redis_client.eval(_INCREMENT_WITH_TTL, 1, key, ttl))
+    value = int(redis_client.eval(_INCREMENT_WITH_TTL, 1, key, ttl))
+    if value <= 0:
+        # INCR on a missing or valid nonnegative counter always returns at
+        # least one. Treat a nonpositive result as corrupted state instead of
+        # allowing calls until it climbs back above zero.
+        raise ValueError("Redis counter returned a nonpositive value")
+    return value
 
 
 def check_rate_limit(client_id: str, redis_client=_UNSET) -> Decision:
