@@ -5,7 +5,7 @@ lifecycle observable beyond Celery's own ephemeral, TTL'd Redis result
 backend — a durable record of what ran, retried, and finished.
 """
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -38,6 +38,26 @@ def test_http_metrics_record_unhandled_exceptions_as_500():
     duration_labels.return_value.observe.assert_called_once()
     total_labels.assert_called_once_with(**labels)
     total_labels.return_value.inc.assert_called_once_with()
+
+
+def test_http_metrics_collapse_unmatched_paths_to_one_label():
+    import app.observability as observability
+
+    app = FastAPI()
+    observability.setup_http_metrics(app)
+
+    with (
+        patch.object(observability.HTTP_REQUEST_DURATION, "labels") as duration_labels,
+        patch.object(observability.HTTP_REQUESTS_TOTAL, "labels") as total_labels,
+        TestClient(app) as client,
+    ):
+        first = client.get("/missing/one")
+        second = client.get("/missing/two")
+
+    assert (first.status_code, second.status_code) == (404, 404)
+    labels = {"method": "GET", "path": "__unmatched__", "status": "404"}
+    assert duration_labels.call_args_list == [call(**labels), call(**labels)]
+    assert total_labels.call_args_list == [call(**labels), call(**labels)]
 
 
 def test_ingestion_lag_never_reports_negative_seconds():

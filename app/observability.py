@@ -150,7 +150,11 @@ def setup_http_metrics(app: FastAPI) -> None:
             # to keep label cardinality bounded regardless of query params or
             # path IDs. The default 500 also records unhandled exceptions.
             route = request.scope.get("route")
-            path = route.path if route is not None else request.url.path
+            # Starlette does not attach a route for 404s. Using the raw path
+            # there would let arbitrary missing URLs create an unbounded
+            # Prometheus label set, so collapse all unmatched requests into
+            # one stable series.
+            path = route.path if route is not None else "__unmatched__"
             labels = {"method": request.method, "path": path, "status": str(status_code)}
             HTTP_REQUEST_DURATION.labels(**labels).observe(elapsed)
             HTTP_REQUESTS_TOTAL.labels(**labels).inc()
