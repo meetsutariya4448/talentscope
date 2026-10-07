@@ -191,6 +191,18 @@ def setup_db_metrics(engine) -> None:
             verb = "OTHER"
         DB_QUERY_DURATION.labels(operation=verb).observe(elapsed)
 
+    @event.listens_for(engine, "handle_error")
+    def _on_error(exception_context):
+        # after_cursor_execute does not fire when the driver raises. Remove
+        # that statement's timer here so a pooled connection does not retain
+        # stale entries and attribute their elapsed time to a later query.
+        conn = exception_context.connection
+        if conn is None:
+            return
+        stack = conn.info.get("query_start_time")
+        if stack:
+            stack.pop()
+
 
 # ---------------------------------------------------------------------------
 # Celery task outcomes (called from app.tasks.monitoring's signal handlers)

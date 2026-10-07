@@ -9,7 +9,9 @@ from unittest.mock import MagicMock, call, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from app.models import FailedTask, TaskExecution
@@ -58,6 +60,25 @@ def test_http_metrics_collapse_unmatched_paths_to_one_label():
     labels = {"method": "GET", "path": "__unmatched__", "status": "404"}
     assert duration_labels.call_args_list == [call(**labels), call(**labels)]
     assert total_labels.call_args_list == [call(**labels), call(**labels)]
+
+
+def test_db_metrics_discard_timers_for_failed_statements():
+    import app.observability as observability
+
+    engine = create_engine("sqlite://")
+    observability.setup_db_metrics(engine)
+
+    with engine.connect() as connection:
+        try:
+            connection.execute(text("SELECT * FROM table_that_does_not_exist"))
+        except OperationalError:
+            pass
+
+        assert connection.info["query_start_time"] == []
+        connection.execute(text("SELECT 1"))
+        assert connection.info["query_start_time"] == []
+
+    engine.dispose()
 
 
 def test_ingestion_lag_never_reports_negative_seconds():
