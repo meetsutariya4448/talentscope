@@ -51,7 +51,7 @@ RATE_WINDOW_SECONDS = 60
 
 _INCREMENT_WITH_TTL = """
 local value = redis.call('INCR', KEYS[1])
-if value == 1 then
+if value == 1 or redis.call('TTL', KEYS[1]) < 0 then
     redis.call('EXPIRE', KEYS[1], ARGV[1])
 end
 return value
@@ -91,7 +91,7 @@ def _rate_key(client_id: str, now: datetime) -> str:
 
 
 def _increment_with_ttl(redis_client, key: str, ttl: int) -> int:
-    """Increment a counter and attach its first expiry atomically."""
+    """Increment a counter and ensure it has an expiry atomically."""
     value = int(redis_client.eval(_INCREMENT_WITH_TTL, 1, key, ttl))
     if value <= 0:
         # INCR on a missing or valid nonnegative counter always returns at

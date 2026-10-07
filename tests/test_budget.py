@@ -35,7 +35,7 @@ class FakeRedis:
     def eval(self, _script, numkeys, key, ttl):
         assert numkeys == 1
         value = self.incr(key)
-        if value == 1:
+        if value == 1 or key not in self.expires:
             self.expire(key, ttl)
         return value
 
@@ -69,6 +69,22 @@ def test_budget_key_is_given_an_expiry_on_first_use(monkeypatch):
 
     assert len(rc.expires) == 1
     assert list(rc.expires.values())[0] == qa_budget.BUDGET_TTL_SECONDS
+
+
+def test_budget_repairs_a_counter_that_lost_its_expiry(monkeypatch):
+    """A restored or manually altered key must not become a permanent budget."""
+    monkeypatch.setattr(settings, "qa_daily_budget", 10)
+    rc = FakeRedis()
+    key = qa_budget._budget_key(__import__("datetime").datetime.now(
+        __import__("datetime").timezone.utc
+    ))
+    rc.store[key] = 4
+
+    decision = qa_budget.consume_budget(redis_client=rc)
+
+    assert decision.allowed is True
+    assert rc.store[key] == 5
+    assert rc.expires[key] == qa_budget.BUDGET_TTL_SECONDS
 
 
 def test_counter_increment_and_expiry_use_one_atomic_redis_operation():
