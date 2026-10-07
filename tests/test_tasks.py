@@ -437,6 +437,22 @@ def test_adzuna_company_creation_disambiguates_colliding_slugs():
     assert len(collision_statement.compile().params["slug"]) <= 255
 
 
+@pytest.mark.parametrize("provider_name", ["", "   ", "\t\n"])
+def test_adzuna_company_creation_replaces_blank_provider_names(provider_name):
+    from app.tasks.adzuna import _get_or_create_company
+
+    inserted = MagicMock()
+    inserted.scalar_one_or_none.return_value = 31
+    db = MagicMock()
+    db.execute.return_value = inserted
+
+    assert _get_or_create_company(db, provider_name) == 31
+    statement = db.execute.call_args.args[0]
+    params = statement.compile().params
+    assert params["name"] == "Unknown"
+    assert params["slug"] == "unknown"
+
+
 @pytest.mark.parametrize(
     ("module_name", "task_name", "source"),
     [

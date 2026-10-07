@@ -34,7 +34,12 @@ ADZUNA_QUERIES = [
 
 
 def _get_or_create_company(db: Session, name: str) -> int:
-    base_slug = name.lower().strip().replace(" ", "-")[:255]
+    # Adzuna occasionally omits the display name or returns padding-only
+    # text. Normalize it before both identity comparisons and persistence so
+    # those records cannot create a blank company/slug or duplicate a company
+    # whose only difference is provider whitespace.
+    name = name.strip() or "Unknown"
+    base_slug = name.lower().replace(" ", "-")[:255]
     company_id = _insert_company(db, name, base_slug)
     if company_id is not None:
         return company_id
