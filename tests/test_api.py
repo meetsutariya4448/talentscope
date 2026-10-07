@@ -6,6 +6,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import postgresql
 
 
 def test_posting_response_preserves_zero_salary_bounds():
@@ -196,6 +197,25 @@ def test_top_companies_endpoint(client):
     assert resp.status_code == 200
     data = resp.json()
     assert "companies" in data
+
+
+def test_analytics_rankings_use_stable_name_tiebreakers():
+    from app.api.analytics import skill_demand, top_companies
+
+    db = MagicMock()
+    db.execute.return_value.all.return_value = []
+
+    skill_demand(window="all", limit=20, db=db)
+    top_companies(limit=10, db=db)
+
+    skill_query = str(db.execute.call_args_list[0].args[0].compile(
+        dialect=postgresql.dialect()
+    ))
+    company_query = str(db.execute.call_args_list[1].args[0].compile(
+        dialect=postgresql.dialect()
+    ))
+    assert "count(posting_skills.posting_id) DESC, skills.name ASC" in skill_query
+    assert "count(postings.id) DESC, companies.name ASC" in company_query
 
 
 def test_posting_stats(client):

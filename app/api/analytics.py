@@ -44,7 +44,9 @@ def skill_demand(
     if cutoff:
         q = q.where(Posting.created_at >= cutoff)
 
-    q = q.group_by(Skill.name, Skill.category).order_by(func.count(PostingSkill.posting_id).desc()).limit(limit)
+    q = q.group_by(Skill.name, Skill.category).order_by(
+        func.count(PostingSkill.posting_id).desc(), Skill.name.asc()
+    ).limit(limit)
 
     results = db.execute(q).all()
     return {
@@ -114,7 +116,7 @@ def top_companies(
         select(Company.name, func.count(Posting.id).label("count"))
         .join(Posting, Posting.company_id == Company.id)
         .group_by(Company.name)
-        .order_by(func.count(Posting.id).desc())
+        .order_by(func.count(Posting.id).desc(), Company.name.asc())
         .limit(limit)
     )
     results = db.execute(q).all()
