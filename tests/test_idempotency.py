@@ -27,6 +27,32 @@ def _company(db, slug: str) -> Company:
 # ingest_posting: duplicate delivery of an unchanged posting
 # ---------------------------------------------------------------------------
 
+def test_resighted_posting_refreshes_company_attribution():
+    existing = MagicMock()
+    existing.id = 41
+    existing.company_id = 1
+    existing.company_token = None
+    existing.title = "Backend Engineer"
+    existing.description = "Python services"
+
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = existing
+    db = MagicMock()
+    db.execute.return_value = result
+    data = {
+        "company_id": 22,
+        "title": existing.title,
+        "description": existing.description,
+        "source": "adzuna",
+        "source_id": "adzuna-company-refresh",
+    }
+
+    with patch("app.ingestion.ingest.apply_panel_fields_on_update"):
+        ingest_posting(db, data, skill_map={})
+
+    assert existing.company_id == 22
+
+
 def test_duplicate_delivery_does_not_create_duplicate_posting(db):
     company = _company(db, "idempo-1")
     data = {

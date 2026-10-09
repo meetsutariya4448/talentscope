@@ -71,6 +71,11 @@ def ingest_posting(
     ).scalar_one_or_none()
 
     if existing is not None:
+        # Aggregator metadata can improve after first sight (for example an
+        # Adzuna posting initially attributed to "Unknown"). Keep the live
+        # foreign key aligned with the normalized provider record so company
+        # analytics and cross-source deduplication do not remain stale.
+        existing.company_id = data["company_id"]
         if company_token and existing.company_token != company_token:
             # Backfills postings ingested before company_token existed (or
             # under a stale value) — without this, a pre-migration posting's
