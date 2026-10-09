@@ -215,6 +215,33 @@ def test_normalizers_remove_nul_from_provider_text_fields():
     assert result["company_name"] == "Acme Corp"
 
 
+def test_normalizers_trim_display_and_url_fields():
+    greenhouse = normalize_greenhouse(
+        {
+            "id": "gh-trimmed",
+            "title": "  Platform Engineer  ",
+            "location": {"name": "  Remote  "},
+            "absolute_url": "  https://example.test/job  ",
+        },
+        company_id=1,
+    )
+    ashby = normalize_ashby(
+        {
+            "id": "ashby-trimmed",
+            "jobUrl": " \x00 ",
+            "applyUrl": "  https://example.test/apply  ",
+        },
+        company_id=2,
+    )
+
+    assert (greenhouse["title"], greenhouse["location"], greenhouse["url"]) == (
+        "Platform Engineer",
+        "Remote",
+        "https://example.test/job",
+    )
+    assert ashby["url"] == "https://example.test/apply"
+
+
 def test_normalize_adzuna():
     job = {
         "id": "adzuna-999",

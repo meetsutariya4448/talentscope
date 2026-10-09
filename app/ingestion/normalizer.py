@@ -24,7 +24,7 @@ def _text(value) -> str:
 
 def _bounded_text(value, max_length: int) -> str:
     """Fit provider text into a bounded database column."""
-    return _text(value)[:max_length]
+    return _text(value).strip()[:max_length].rstrip()
 
 
 def _first_text(*values) -> str:
@@ -32,7 +32,7 @@ def _first_text(*values) -> str:
     for value in values:
         text = _text(value)
         if text.strip():
-            return text
+            return text.strip()
     return ""
 
 
@@ -40,8 +40,8 @@ def _mapping_text(value, key: str, max_length: int | None = None) -> str:
     """Read a string from provider metadata without trusting its shape."""
     if not isinstance(value, Mapping):
         return ""
-    text = _text(value.get(key))
-    return text if max_length is None else text[:max_length]
+    text = _text(value.get(key)).strip()
+    return text if max_length is None else text[:max_length].rstrip()
 
 
 def _source_id(job: Mapping) -> str:
@@ -98,7 +98,7 @@ def normalize_greenhouse(job: dict, company_id: int) -> dict:
     title = _bounded_text(job.get("title"), 512)
     location = _mapping_text(job.get("location"), "name", 255)
     description = _strip_html(job.get("content", ""))
-    url = _text(job.get("absolute_url"))
+    url = _text(job.get("absolute_url")).strip()
     source_id = _source_id(job)
     posted_at = _iso_timestamp(job.get("updated_at"))
     return {
@@ -123,7 +123,7 @@ def normalize_lever(job: dict, company_id: int) -> dict:
     description = _strip_html(_first_text(
         job.get("descriptionPlain"), job.get("description")
     ))
-    url = _text(job.get("hostedUrl"))
+    url = _text(job.get("hostedUrl")).strip()
     source_id = _source_id(job)
     posted_at = _epoch_millis_timestamp(job.get("createdAt"))
     return {
@@ -174,7 +174,7 @@ def normalize_adzuna(job: dict) -> dict:
     if salary_min is not None and salary_max is not None and salary_min > salary_max:
         salary_min = None
         salary_max = None
-    url = _text(job.get("redirect_url"))
+    url = _text(job.get("redirect_url")).strip()
     source_id = _source_id(job)
     posted_at = _iso_timestamp(job.get("created"))
     company_name = _mapping_text(job.get("company"), "display_name", 255)
