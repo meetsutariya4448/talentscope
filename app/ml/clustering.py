@@ -110,16 +110,21 @@ def _cluster_top_skills(
         {"ids": all_ids},
     ).fetchall()
 
-    # Corpus-wide counts: how many postings (of all n_total) have each skill
+    # Clustering-corpus counts: how many embedded postings have each skill.
+    # Unembedded postings are not cluster members, so allowing them into this
+    # denominator makes a skill look artificially common and suppresses it in
+    # every cluster label.
     global_rows = db.execute(
         text("""
             SELECT s.name, COUNT(DISTINCT ps.posting_id) AS cnt
             FROM posting_skills ps
             JOIN skills s ON ps.skill_id = s.id
+            WHERE ps.posting_id = ANY(:ids)
             GROUP BY s.name
         """),
+        {"ids": all_ids},
     ).fetchall()
-    # fraction of ALL postings that carry this skill
+    # Fraction of embedded postings in this clustering run carrying the skill.
     corpus_freq: dict[str, float] = {r[0]: r[1] / n_total for r in global_rows}
 
     # posting_id → cluster_id reverse map

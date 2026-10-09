@@ -7,6 +7,7 @@ deterministic — no model load, no network.
 import json
 import numpy as np
 import pytest
+from unittest.mock import MagicMock
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +58,21 @@ def _seed_postings_with_embeddings(db, n: int, n_clusters: int = 3, dim: int = 3
 # ---------------------------------------------------------------------------
 # Unit tests for clustering logic
 # ---------------------------------------------------------------------------
+
+def test_top_skill_baseline_uses_only_clustered_postings():
+    from app.ml.clustering import _cluster_top_skills
+
+    member_rows = MagicMock()
+    member_rows.fetchall.return_value = [(11, "Python"), (12, "Python")]
+    global_rows = MagicMock()
+    global_rows.fetchall.return_value = [("Python", 2)]
+    db = MagicMock()
+    db.execute.side_effect = [member_rows, global_rows]
+
+    result = _cluster_top_skills({0: [11, 12]}, db, n_total=2)
+
+    assert result == {0: ["Python"]}
+    assert db.execute.call_args_list[1].args[1] == {"ids": [11, 12]}
 
 def test_clustering_returns_expected_structure(db):
     """run_clustering() returns the documented summary keys."""
