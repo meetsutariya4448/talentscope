@@ -164,7 +164,12 @@ def _cluster_top_skills(
         if not scores:
             # No skill meets the floor — fall back to raw frequency top-n
             scores = {name: count for name, count in counter.items()}
-        result[cid] = [name for name, _ in sorted(scores.items(), key=lambda x: -x[1])[:n]]
+        result[cid] = [
+            name
+            for name, _ in sorted(
+                scores.items(), key=lambda item: (-item[1], item[0].casefold(), item[0])
+            )[:n]
+        ]
 
     return result
 

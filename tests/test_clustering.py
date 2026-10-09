@@ -74,6 +74,25 @@ def test_top_skill_baseline_uses_only_clustered_postings():
     assert result == {0: ["Python"]}
     assert db.execute.call_args_list[1].args[1] == {"ids": [11, 12]}
 
+
+def test_top_skill_ties_are_ordered_deterministically():
+    from app.ml.clustering import _cluster_top_skills
+
+    member_rows = MagicMock()
+    member_rows.fetchall.return_value = [
+        (11, "Zig"), (12, "Zig"), (13, "Zig"),
+        (11, "Alpha"), (12, "Alpha"), (13, "Alpha"),
+    ]
+    global_rows = MagicMock()
+    global_rows.fetchall.return_value = [("Zig", 3), ("Alpha", 3)]
+    db = MagicMock()
+    db.execute.side_effect = [member_rows, global_rows]
+
+    result = _cluster_top_skills({0: [11, 12, 13]}, db, n_total=3)
+
+    assert result == {0: ["Alpha", "Zig"]}
+
+
 def test_clustering_returns_expected_structure(db):
     """run_clustering() returns the documented summary keys."""
     _seed_postings_with_embeddings(db, n=30, n_clusters=3, seed=1)
