@@ -82,13 +82,14 @@ def _valid_cached_payload(payload) -> bool:
         for source in sources
     ):
         return False
-    cited_ids = payload.get("cited_ids")
-    if cited_ids is not None and (
-        not isinstance(cited_ids, list)
-        or not all(isinstance(pid, int) and not isinstance(pid, bool) for pid in cited_ids)
-        or cited_ids != _parse_cited_ids(payload["answer"], sources)
-    ):
-        return False
+    if "cited_ids" in payload:
+        cited_ids = payload["cited_ids"]
+        if (
+            not isinstance(cited_ids, list)
+            or not all(isinstance(pid, int) and not isinstance(pid, bool) for pid in cited_ids)
+            or cited_ids != _parse_cited_ids(payload["answer"], sources)
+        ):
+            return False
     model = payload.get("model")
     return model is None or isinstance(model, str)
 

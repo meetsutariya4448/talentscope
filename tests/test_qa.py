@@ -146,6 +146,7 @@ def test_cache_key_changes_with_configured_model(monkeypatch):
         {},
         {"answer": "Cached answer", "sources": "not-a-list"},
         {"answer": "Cached answer", "sources": [{"title": "Missing id"}]},
+        {"answer": "Cached answer", "sources": [], "cited_ids": None},
         {
             "answer": "Cached answer [1]",
             "sources": [{"id": 1, "title": "Engineer"}],
