@@ -156,3 +156,32 @@ def test_warmup_does_not_mark_ready_until_first_encode_finishes(monkeypatch):
     warmup.join(timeout=2)
     assert not warmup.is_alive()
     assert encoder.is_model_ready() is True
+
+
+def test_concurrent_warmups_run_the_first_encode_once(monkeypatch):
+    encode_started = threading.Event()
+    release_encode = threading.Event()
+    encode_calls = 0
+
+    class _BlockingModel:
+        def encode(self, _texts, **_kwargs):
+            nonlocal encode_calls
+            encode_calls += 1
+            encode_started.set()
+            assert release_encode.wait(timeout=2)
+            return [[0.0] * 384]
+
+    monkeypatch.setattr(encoder, "_model", _BlockingModel())
+    encoder._ready.clear()
+    warmups = [threading.Thread(target=encoder.warm_model) for _ in range(2)]
+    for warmup in warmups:
+        warmup.start()
+
+    assert encode_started.wait(timeout=2)
+    release_encode.set()
+    for warmup in warmups:
+        warmup.join(timeout=2)
+        assert not warmup.is_alive()
+
+    assert encode_calls == 1
+    assert encoder.is_model_ready() is True

@@ -10,6 +10,7 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 # avoid the ~3 s startup penalty until the first search or embed request.
 _model = None
 _model_lock = threading.Lock()
+_warm_lock = threading.Lock()
 
 # Flipped once the model is not just constructed but has completed a real
 # encode() — see warm_model(). /ready (app/main.py) gates on this, and the
@@ -49,18 +50,21 @@ def warm_model() -> float:
     cold-start cost actually lives. Warming without it would flip readiness
     while the first real search still paid a visible penalty.
 
-    Safe to call from several threads/processes; the underlying construction
-    is already guarded by get_model()'s lock. Returns seconds elapsed.
+    Safe to call from several threads/processes. Construction and the first
+    encode are both serialized within a process. Returns seconds elapsed.
     """
     global _load_seconds
-    start = time.perf_counter()
-    model = get_model()
-    model.encode(["warmup"], normalize_embeddings=True)
-    elapsed = time.perf_counter() - start
-    _load_seconds = elapsed
-    _ready.set()
-    logger.info("Embedding model warm after %.2f s (%s)", elapsed, MODEL_NAME)
-    return elapsed
+    with _warm_lock:
+        if _ready.is_set():
+            return _load_seconds if _load_seconds is not None else 0.0
+        start = time.perf_counter()
+        model = get_model()
+        model.encode(["warmup"], normalize_embeddings=True)
+        elapsed = time.perf_counter() - start
+        _load_seconds = elapsed
+        _ready.set()
+        logger.info("Embedding model warm after %.2f s (%s)", elapsed, MODEL_NAME)
+        return elapsed
 
 
 def is_model_ready() -> bool:
