@@ -144,6 +144,7 @@ def test_cache_key_changes_with_configured_model(monkeypatch):
     [
         [],
         {},
+        {"answer": "   ", "sources": []},
         {"answer": "Cached answer", "sources": "not-a-list"},
         {"answer": "Cached answer", "sources": [{"title": "Missing id"}]},
         {"answer": "Cached answer", "sources": [], "cited_ids": None},
@@ -208,6 +209,34 @@ def test_answer_question_cache_miss_then_write(db):
     from app.search.rag import CACHE_TTL
     call_args = mock_redis.setex.call_args
     assert call_args[0][1] == CACHE_TTL
+
+
+def test_answer_question_rejects_empty_provider_answers():
+    from app.search.rag import answer_question
+
+    mock_msg = MagicMock()
+    mock_msg.content = "   "
+    mock_completion = MagicMock()
+    mock_completion.choices = [MagicMock(message=mock_msg)]
+    mock_completion.model = "test-model"
+
+    with (
+        patch("app.search.rag._Groq") as mock_groq,
+        patch("app.search.hybrid.fts_search", return_value=[]),
+        patch("app.search.hybrid.fetch_postings_by_ids", return_value=[]),
+    ):
+        mock_groq.return_value.chat.completions.create.return_value = mock_completion
+        result = answer_question(
+            "What jobs are open?",
+            db=MagicMock(),
+            mode="fts",
+            redis_client=None,
+            groq_api_key="test-key",
+        )
+
+    assert result["answer"] is None
+    assert result["error"] == "Q&A provider unavailable"
+    assert result["cached"] is False
 
 
 def test_answer_question_redis_unavailable_does_not_crash(db):

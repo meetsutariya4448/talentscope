@@ -72,7 +72,11 @@ def _parse_cited_ids(answer: str, postings: list[dict]) -> list[int]:
 
 def _valid_cached_payload(payload) -> bool:
     """Validate Redis data before returning it through the API contract."""
-    if not isinstance(payload, dict) or not isinstance(payload.get("answer"), str):
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("answer"), str)
+        or not payload["answer"].strip()
+    ):
         return False
     sources = payload.get("sources")
     if not isinstance(sources, list) or not all(
@@ -248,7 +252,10 @@ def answer_question(
             temperature=0.2,
             max_tokens=MAX_TOKENS,
         )
-        answer = completion.choices[0].message.content.strip()
+        content = completion.choices[0].message.content
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("Q&A provider returned an empty answer")
+        answer = content.strip()
     except Exception:
         # Authentication, rate-limit, timeout, and malformed provider
         # responses are upstream availability failures.  Return the same
