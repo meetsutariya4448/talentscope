@@ -3,8 +3,14 @@ Phase 2 tests: RRF logic (pure), API mode param, hybrid vs FTS integration.
 """
 import numpy as np
 import pytest
+from unittest.mock import MagicMock
 
-from app.search.hybrid import escape_like_pattern, reciprocal_rank_fusion
+from app.search.hybrid import (
+    escape_like_pattern,
+    fts_search,
+    reciprocal_rank_fusion,
+    vector_search,
+)
 from app.models import Company, Posting
 
 
@@ -62,6 +68,27 @@ def test_rrf_duplicate_within_source_does_not_inflate_score():
     result = reciprocal_rank_fusion([[1, 1, 2], [2]])
 
     assert result == [2, 1]
+
+
+def test_rrf_uses_posting_id_to_stabilize_equal_scores():
+    assert reciprocal_rank_fusion([[20], [10]]) == [10, 20]
+
+
+def test_retrieval_queries_stabilize_equal_database_scores(monkeypatch):
+    db = MagicMock()
+    db.execute.return_value.fetchall.return_value = []
+
+    fts_search(db, "platform engineer")
+    fts_sql = str(db.execute.call_args.args[0])
+
+    model = MagicMock()
+    model.encode.return_value = np.zeros(384)
+    monkeypatch.setattr("app.search.encoder.get_model", lambda: model)
+    vector_search(db, "platform engineer")
+    vector_sql = str(db.execute.call_args.args[0])
+
+    assert "p.id DESC" in fts_sql
+    assert "p.id DESC" in vector_sql
 
 
 # ---------------------------------------------------------------------------

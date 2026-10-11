@@ -55,7 +55,7 @@ def reciprocal_rank_fusion(ranked_lists: list[list[int]], k: int = RRF_K) -> lis
             seen.add(doc_id)
             unique_rank += 1
             scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + unique_rank)
-    return sorted(scores, key=lambda d: scores[d], reverse=True)
+    return sorted(scores, key=lambda doc_id: (-scores[doc_id], doc_id))
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +90,8 @@ def fts_search(
         {location_clause}
         ORDER BY ts_rank(p.search_vector,
                  to_tsquery('english',
-                 replace(plainto_tsquery('english', :q)::text, ' & ', ' | '))) DESC
+                 replace(plainto_tsquery('english', :q)::text, ' & ', ' | '))) DESC,
+                 p.id DESC
         LIMIT :limit
     """
     skill_join = ""
@@ -146,7 +147,7 @@ def vector_search(
         WHERE p.embedding IS NOT NULL
         {skill_join}
         {location_clause}
-        ORDER BY p.embedding <=> CAST(:vec AS vector)
+        ORDER BY p.embedding <=> CAST(:vec AS vector) ASC, p.id DESC
         LIMIT :limit
     """
     skill_join = ""
