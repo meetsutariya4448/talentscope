@@ -195,6 +195,24 @@ def test_clustering_not_enough_data():
     assert "error" in result
 
 
+def test_clustering_rejects_collapsed_embeddings_without_writing():
+    from app.ml.clustering import run_clustering
+
+    mock_result = MagicMock()
+    mock_result.all.return_value = [
+        (posting_id, [1.0] + [0.0] * 383)
+        for posting_id in range(1, 11)
+    ]
+    mock_db = MagicMock()
+    mock_db.execute.return_value = mock_result
+
+    result = run_clustering(mock_db)
+
+    assert result == {"error": "Not enough distinct embeddings to form clusters"}
+    mock_db.add_all.assert_not_called()
+    mock_db.commit.assert_not_called()
+
+
 @pytest.mark.parametrize("invalid_k", [1, 10, True])
 def test_clustering_rejects_invalid_explicit_k(invalid_k):
     from unittest.mock import MagicMock

@@ -54,8 +54,9 @@ def _best_k(embeddings: np.ndarray) -> tuple[int, dict[int, float]]:
     from sklearn.metrics import silhouette_score
 
     n = len(embeddings)
-    k_max = min(_K_MAX, n // 2)   # can't have more clusters than n/2
-    k_min = min(_K_MIN, k_max - 1)
+    distinct_vectors = len(np.unique(embeddings, axis=0))
+    k_max = min(_K_MAX, n // 2, distinct_vectors)
+    k_min = max(2, min(_K_MIN, k_max - 1))
 
     scores: dict[int, float] = {}
     sample = min(n, _SIL_SAMPLE)
@@ -216,6 +217,13 @@ def run_clustering(db, k: int | None = None) -> dict:
     posting_ids = [r[0] for r in rows]
     raw_vecs    = np.array([list(r[1]) for r in rows], dtype=np.float32)
     embeddings  = normalize(raw_vecs)   # unit sphere
+    distinct_vectors = len(np.unique(embeddings, axis=0))
+    if distinct_vectors < 2:
+        return {"error": "Not enough distinct embeddings to form clusters"}
+    if k is not None and k > distinct_vectors:
+        return {
+            "error": f"k={k} exceeds the {distinct_vectors} distinct embeddings available"
+        }
 
     # --- 2. Choose k ---
     sil_scores: dict[int, float] = {}
