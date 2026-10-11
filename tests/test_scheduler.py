@@ -66,12 +66,32 @@ def test_company_creation_reads_winner_after_conflict():
     insert_result = MagicMock()
     insert_result.scalar_one_or_none.return_value = None
     select_result = MagicMock()
-    select_result.scalar_one.return_value = 23
+    select_result.one.return_value = (23, "Acme")
     db = MagicMock()
     db.execute.side_effect = [insert_result, select_result]
 
     assert _get_or_create_company(db, "Acme", "acme") == 23
     assert db.execute.call_count == 2
+
+
+def test_company_creation_disambiguates_colliding_slugs():
+    from app.tasks.scheduler import _get_or_create_company
+    from sqlalchemy.dialects import postgresql
+
+    base_insert = MagicMock()
+    base_insert.scalar_one_or_none.return_value = None
+    base_company = MagicMock()
+    base_company.one.return_value = (23, "Different Company")
+    collision_insert = MagicMock()
+    collision_insert.scalar_one_or_none.return_value = 29
+    db = MagicMock()
+    db.execute.side_effect = [base_insert, base_company, collision_insert]
+
+    assert _get_or_create_company(db, "Acme", "shared-token") == 29
+    collision_statement = db.execute.call_args_list[2].args[0]
+    compiled = collision_statement.compile(dialect=postgresql.dialect())
+    assert compiled.params["slug"].startswith("shared-token-")
+    assert "ON CONFLICT (slug) DO NOTHING" in str(compiled)
 
 
 # ---------------------------------------------------------------------------
