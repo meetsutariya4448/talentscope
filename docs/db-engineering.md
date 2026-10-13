@@ -33,8 +33,10 @@ Query: `WHERE location = 'Remote' ORDER BY posted_at DESC LIMIT 50`
 ## 3. Composite B-tree index `(company_id, title, location)`
 
 Query: equality filter on all three columns, matching the index's leading
-column order — the reason composite index column *order* matters: a filter
-that doesn't lead with `company_id` can't use this index at all.
+column order. Leading-column constraints usually make this B-tree index
+most efficient; a query without `company_id` is not categorically unable to
+use it, but may need to scan more of the index or be planned differently.
+See [PostgreSQL's multicolumn-index guidance](https://www.postgresql.org/docs/current/indexes-multicolumn.html).
 
 | Scenario | p50 (ms) | p95 (ms) | mean (ms) |
 |---|---|---|---|
@@ -62,18 +64,21 @@ at ef=40 and *falsely appear to fall* at higher ef_search), averaged over
 guaranteed monotonic in ef_search even though the trend is, on average.
 
 **Caveat**: these embeddings are random unit vectors with no real semantic
-structure, unlike the trained all-MiniLM-L6-v2 embeddings production data
-gets. Real embeddings cluster in a lower effective dimensionality that HNSW
-navigates more efficiently, so these recall numbers are a worst-case floor,
-not a production estimate — re-run this script against real embedded
-postings before tuning `vector_ef_search` for real.
+structure, unlike the trained all-MiniLM-L6-v2 embeddings used by real
+postings. The measured recall is specific to this synthetic corpus; it is
+neither a worst-case floor nor a production estimate. Re-run the sweep on
+real embedded postings before tuning `vector_ef_search`.
 
-pgvector auto-raises the effective `ef_search` to at least the query's
-`LIMIT` regardless of any configured value — since hybrid retrieval uses
-`TOP_K=200` (`app/search/hybrid.py`), the default (40) is already
-irrelevant there; `vector_ef_search` (`app/config.py`) only matters as an
-override *above* 200. Newly wired into `vector_search()` as a `SET LOCAL
-hnsw.ef_search` — unset (`None`) by default, preserving current behavior.
+The query `LIMIT` does **not** automatically raise `hnsw.ef_search`. pgvector's
+default candidate-list size is 40; an indexed query can return fewer than
+its requested limit, especially with filters or dead tuples. Hybrid retrieval
+requests up to `TOP_K=200` vector candidates (`app/search/hybrid.py`), so a
+larger `vector_ef_search` may matter for both result count and recall. This
+application sets `hnsw.ef_search` with `SET LOCAL` only when the optional
+configuration value is provided; otherwise it leaves the pgvector default.
+Whether PostgreSQL chooses the HNSW index for a given query must be checked
+with `EXPLAIN`, and tuning needs representative real-data measurements.
+See [pgvector's HNSW documentation](https://github.com/pgvector/pgvector#hnsw).
 
 | ef_search | p50 (ms) | recall@20 |
 |---|---|---|

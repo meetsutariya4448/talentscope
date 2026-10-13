@@ -124,7 +124,7 @@ open http://localhost:8000/dashboard/
 
 ## Testing and scope
 
-**171 tests passed in hosted CI** at commit `3dcb380` on `main` ([run 34087037678](https://github.com/meetsutariya4448/talentscope/actions/runs/34087037678)), against PostgreSQL with pgvector and Redis service containers.
+**Historical CI:** 171 tests passed at commit `3dcb380` on `main` ([run 34087037678](https://github.com/meetsutariya4448/talentscope/actions/runs/34087037678)), against PostgreSQL with pgvector and Redis service containers. That run does not verify newer commits. The workflow now runs on pushes to every branch; check the [latest branch CI run](https://github.com/meetsutariya4448/talentscope/actions/workflows/ci.yml) for the exact commit being evaluated.
 
 - Ingestion idempotency is tested against real PostgreSQL, not a mock: repeated ingestion, skill links following changed content, dead-letter writes.
 - **Broker-level behaviour is not tested.** No test starts a real Celery worker or forces a redelivery, so worker-crash and duplicate-delivery handling under an actual broker is unverified. The at-least-once configuration is present but not demonstrated.
