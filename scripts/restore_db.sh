@@ -68,6 +68,24 @@ fi
 
 [ -n "$KEY" ] || { echo "usage: restore_db.sh (--latest | --key NAME | --list) [--yes]" >&2; exit 2; }
 
+# backup_db.sh writes flat, timestamped object names. Refuse path-like or
+# option-like keys before using the value as both an S3 key and local path.
+# Besides preventing traversal out of LOCAL_DIR, this keeps later tools from
+# interpreting an attacker-controlled basename as an option.
+case "$KEY" in
+  -*|*/*|*\\*|*..*|*[!A-Za-z0-9._-]*)
+    echo "Invalid backup key '${KEY}'; expected a flat *.dump.gz filename." >&2
+    exit 2
+    ;;
+esac
+case "$KEY" in
+  *.dump.gz) ;;
+  *)
+    echo "Invalid backup key '${KEY}'; expected a flat *.dump.gz filename." >&2
+    exit 2
+    ;;
+esac
+
 echo "=== Restore ${PGDATABASE} from ${KEY} ==="
 
 if [ "$ASSUME_YES" != true ]; then
@@ -84,6 +102,14 @@ mkdir -p "$LOCAL_DIR"
 LOCAL_FILE="${LOCAL_DIR}/${KEY}"
 echo "  downloading s3://${BACKUP_BUCKET}/${KEY}"
 aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}" "$LOCAL_FILE" --only-show-errors
+
+# Validate the archive before terminating sessions or dropping the database.
+# A truncated S3 object must fail while the existing database is still intact,
+# not halfway through the destructive restore sequence.
+if ! gzip -t "$LOCAL_FILE" 2>/dev/null; then
+  echo "Downloaded backup is not a valid gzip archive; database was not changed." >&2
+  exit 1
+fi
 
 EXPECTED_COUNTS=""
 if aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}.manifest.json" \

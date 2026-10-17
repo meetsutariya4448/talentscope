@@ -1,0 +1,81 @@
+import os
+from pathlib import Path
+import subprocess
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+RESTORE_SCRIPT = REPO_ROOT / "scripts" / "restore_db.sh"
+
+
+def _write_executable(path: Path, contents: str) -> None:
+    path.write_text(contents, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _restore_env(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker_marker = tmp_path / "docker-called"
+    _write_executable(
+        bin_dir / "docker",
+        f"#!/bin/sh\ntouch '{docker_marker}'\nexit 99\n",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{bin_dir}:{env['PATH']}",
+            "AWS_ENDPOINT_URL": "http://localstack.test",
+            "LOCAL_DIR": str(tmp_path / "downloads"),
+            "_TS_STATE_FILE": str(tmp_path / "missing-deploy-state"),
+        }
+    )
+    return env, docker_marker
+
+
+def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    aws_marker = tmp_path / "aws-called"
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        f"#!/bin/sh\ntouch '{aws_marker}'\nexit 99\n",
+    )
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--key", "../escape.dump.gz", "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "Invalid backup key" in result.stderr
+    assert not aws_marker.exists()
+    assert not docker_marker.exists()
+
+
+def test_restore_validates_gzip_before_touching_database(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        """#!/bin/sh
+for argument in "$@"; do
+  case "$argument" in
+    s3://*) ;;
+    *.dump.gz) printf 'truncated archive' > "$argument" ;;
+  esac
+done
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--key", "talentscope-test.dump.gz", "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "not a valid gzip archive" in result.stderr
+    assert not docker_marker.exists()
