@@ -16,11 +16,18 @@ _MAX_STORED_SALARY = 9_999_999_999.99  # Posting salary columns are NUMERIC(12, 
 def _text(value) -> str:
     """Return database-safe provider text when its JSON type is a string.
 
-    PostgreSQL rejects the NUL code point in text values. One malformed
-    description should not roll back an otherwise valid provider batch, so
-    remove it at the untrusted-input boundary.
+    PostgreSQL rejects the NUL code point and Python cannot UTF-8 encode
+    unpaired surrogates. One malformed description should not roll back an
+    otherwise valid provider batch, so remove both at the untrusted-input
+    boundary.
     """
-    return value.replace("\x00", "") if isinstance(value, str) else ""
+    if not isinstance(value, str):
+        return ""
+    return "".join(
+        character
+        for character in value
+        if character != "\x00" and unicodedata.category(character) != "Cs"
+    )
 
 
 def _bounded_text(value, max_length: int) -> str:

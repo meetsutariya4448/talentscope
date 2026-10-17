@@ -215,6 +215,19 @@ def test_normalizers_remove_nul_from_provider_text_fields():
     assert result["company_name"] == "Acme Corp"
 
 
+def test_normalizers_remove_unpaired_surrogates_from_provider_text_fields():
+    result = normalize_adzuna({
+        "id": "safe-surrogate-id",
+        "title": "Platform\ud800 Engineer",
+        "description": "Build\udfff systems",
+        "company": {"display_name": "Acme\ud800 Corp"},
+    })
+
+    assert result["title"] == "Platform Engineer"
+    assert result["description"] == "Build systems"
+    assert result["company_name"] == "Acme Corp"
+
+
 def test_normalizers_trim_display_and_url_fields():
     greenhouse = normalize_greenhouse(
         {
