@@ -139,6 +139,18 @@ def test_cache_key_changes_with_configured_model(monkeypatch):
     assert first != second
 
 
+def test_cache_key_collapses_insignificant_question_whitespace():
+    from app.search.rag import _cache_key
+
+    compact = _cache_key("Which companies hire platform engineers?", "hybrid")
+    padded = _cache_key(
+        "  Which  companies\n hire\tplatform engineers?  ",
+        "hybrid",
+    )
+
+    assert compact == padded
+
+
 @pytest.mark.parametrize(
     "cached_body",
     [
