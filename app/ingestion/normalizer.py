@@ -4,6 +4,7 @@ import unicodedata
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from html import unescape
+from urllib.parse import urlsplit
 
 
 _NON_CONTENT_HTML_RE = re.compile(
@@ -33,6 +34,21 @@ def _first_text(*values) -> str:
         text = _text(value)
         if text.strip():
             return text.strip()
+    return ""
+
+
+def _safe_url(*values) -> str:
+    """Return the first absolute HTTP(S) URL from provider-controlled data."""
+    for value in values:
+        candidate = _text(value).strip()
+        if not candidate:
+            continue
+        try:
+            parsed = urlsplit(candidate)
+        except ValueError:
+            continue
+        if parsed.scheme.lower() in {"http", "https"} and parsed.netloc:
+            return candidate
     return ""
 
 
@@ -98,7 +114,7 @@ def normalize_greenhouse(job: dict, company_id: int) -> dict:
     title = _bounded_text(job.get("title"), 512)
     location = _mapping_text(job.get("location"), "name", 255)
     description = _strip_html(job.get("content", ""))
-    url = _text(job.get("absolute_url")).strip()
+    url = _safe_url(job.get("absolute_url"))
     source_id = _source_id(job)
     posted_at = _iso_timestamp(job.get("updated_at"))
     return {
@@ -123,7 +139,7 @@ def normalize_lever(job: dict, company_id: int) -> dict:
     description = _strip_html(_first_text(
         job.get("descriptionPlain"), job.get("description")
     ))
-    url = _text(job.get("hostedUrl")).strip()
+    url = _safe_url(job.get("hostedUrl"))
     source_id = _source_id(job)
     posted_at = _epoch_millis_timestamp(job.get("createdAt"))
     return {
@@ -146,7 +162,7 @@ def normalize_ashby(job: dict, company_id: int) -> dict:
     title = _bounded_text(job.get("title"), 512)
     location = _bounded_text(job.get("location"), 255)
     description = _strip_html(job.get("descriptionHtml") or "")
-    url = _first_text(job.get("jobUrl"), job.get("applyUrl"))
+    url = _safe_url(job.get("jobUrl"), job.get("applyUrl"))
     source_id = _source_id(job)
     posted_at = _iso_timestamp(job.get("publishedAt"))
     return {
@@ -174,7 +190,7 @@ def normalize_adzuna(job: dict) -> dict:
     if salary_min is not None and salary_max is not None and salary_min > salary_max:
         salary_min = None
         salary_max = None
-    url = _text(job.get("redirect_url")).strip()
+    url = _safe_url(job.get("redirect_url"))
     source_id = _source_id(job)
     posted_at = _iso_timestamp(job.get("created"))
     company_name = _mapping_text(job.get("company"), "display_name", 255)

@@ -242,6 +242,40 @@ def test_normalizers_trim_display_and_url_fields():
     assert ashby["url"] == "https://example.test/apply"
 
 
+@pytest.mark.parametrize(
+    ("normalizer", "job", "args"),
+    [
+        (
+            normalize_greenhouse,
+            {"id": "gh-url", "absolute_url": "javascript:alert(1)"},
+            (1,),
+        ),
+        (normalize_lever, {"id": "lever-url", "hostedUrl": "//example.test/job"}, (1,)),
+        (normalize_ashby, {"id": "ashby-url", "jobUrl": "data:text/html,bad"}, (1,)),
+        (
+            normalize_adzuna,
+            {"id": "adzuna-url", "redirect_url": "https:///missing-host"},
+            (),
+        ),
+    ],
+)
+def test_normalizers_reject_unsafe_or_nonabsolute_job_urls(normalizer, job, args):
+    assert normalizer(job, *args)["url"] == ""
+
+
+def test_ashby_normalizer_falls_back_to_first_safe_job_url():
+    result = normalize_ashby(
+        {
+            "id": "ashby-safe-fallback",
+            "jobUrl": "javascript:alert(1)",
+            "applyUrl": "https://example.test/apply",
+        },
+        company_id=3,
+    )
+
+    assert result["url"] == "https://example.test/apply"
+
+
 def test_normalize_adzuna():
     job = {
         "id": "adzuna-999",
