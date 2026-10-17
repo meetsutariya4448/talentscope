@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlsplit
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
@@ -12,6 +13,41 @@ class Settings(BaseSettings):
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
     groq_api_key: str = ""
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, value: str) -> str:
+        normalized = value.strip()
+        try:
+            parsed = urlsplit(normalized)
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("database URL must be a valid PostgreSQL URL") from exc
+        if (
+            parsed.scheme not in {"postgresql", "postgresql+psycopg2"}
+            or not parsed.hostname
+            or parsed.path in {"", "/"}
+            or (port is not None and not 1 <= port <= 65535)
+        ):
+            raise ValueError("database URL must be a valid PostgreSQL URL")
+        return normalized
+
+    @field_validator("redis_url")
+    @classmethod
+    def validate_redis_url(cls, value: str) -> str:
+        normalized = value.strip()
+        try:
+            parsed = urlsplit(normalized)
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("Redis URL must be a valid redis:// or rediss:// URL") from exc
+        if (
+            parsed.scheme not in {"redis", "rediss"}
+            or not parsed.hostname
+            or (port is not None and not 1 <= port <= 65535)
+        ):
+            raise ValueError("Redis URL must be a valid redis:// or rediss:// URL")
+        return normalized
 
     # Connection pool sizing. Defaults assume one api process + Celery workers
     # sharing the DB: pool_size covers steady-state concurrent requests,

@@ -13,6 +13,37 @@ def test_settings_loads_default_env_file(tmp_path, monkeypatch):
     assert configured.db_pool_size == 7
 
 
+def test_settings_normalizes_supported_service_urls():
+    configured = Settings(
+        _env_file=None,
+        database_url=" postgresql+psycopg2://user:pass@db:5432/talentscope ",
+        redis_url=" rediss://cache:6380/1 ",
+    )
+
+    assert configured.database_url == (
+        "postgresql+psycopg2://user:pass@db:5432/talentscope"
+    )
+    assert configured.redis_url == "rediss://cache:6380/1"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("database_url", "", "PostgreSQL"),
+        ("database_url", "sqlite:///tmp/test.db", "PostgreSQL"),
+        ("database_url", "postgresql://db", "PostgreSQL"),
+        ("database_url", "postgresql://db:70000/app", "PostgreSQL"),
+        ("redis_url", "", "Redis URL"),
+        ("redis_url", "http://cache:6379/0", "Redis URL"),
+        ("redis_url", "redis:///0", "Redis URL"),
+        ("redis_url", "redis://cache:70000/0", "Redis URL"),
+    ],
+)
+def test_settings_rejects_invalid_service_urls(field, value, message):
+    with pytest.raises(ValidationError, match=message):
+        Settings(_env_file=None, **{field: value})
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
