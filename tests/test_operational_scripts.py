@@ -171,3 +171,38 @@ done
     assert result.returncode == 1
     assert "not a valid gzip archive" in result.stderr
     assert not docker_marker.exists()
+
+
+def test_restore_rejects_invalid_manifest_before_touching_database(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    valid_archive = tmp_path / "valid.dump.gz"
+    subprocess.run(
+        ["gzip", "-c"],
+        input=b"valid archive payload",
+        stdout=valid_archive.open("wb"),
+        check=True,
+    )
+    env["VALID_ARCHIVE"] = str(valid_archive)
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        """#!/bin/sh
+for argument in "$@"; do
+  case "$argument" in
+    "$LOCAL_DIR"/*.manifest.json) printf '{invalid json' > "$argument" ;;
+    "$LOCAL_DIR"/*.dump.gz) cp "$VALID_ARCHIVE" "$argument" ;;
+  esac
+done
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--key", "talentscope-test.dump.gz", "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "backup manifest is invalid" in result.stderr
+    assert not docker_marker.exists()
