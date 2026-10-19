@@ -63,6 +63,11 @@ GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 NAME="talentscope-${PGDATABASE}-${TS}-${GIT_SHA}.dump.gz"
 mkdir -p "$LOCAL_DIR"
 DEST="${LOCAL_DIR}/${NAME}"
+MANIFEST="${DEST}.manifest.json"
+if [ -e "$DEST" ] || [ -e "$MANIFEST" ]; then
+  echo "ERROR: refusing to overwrite existing backup evidence for ${NAME}." >&2
+  exit 1
+fi
 
 echo "=== Backing up ${PGDATABASE} ==="
 
@@ -89,7 +94,6 @@ fi
 echo "  wrote: $DEST (${SIZE} bytes)"
 
 # A manifest next to the dump, so a restore can verify rather than assume.
-MANIFEST="${DEST}.manifest.json"
 cat > "$MANIFEST" <<JSON
 {
   "backup": "${NAME}",

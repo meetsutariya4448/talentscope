@@ -57,6 +57,36 @@ def test_backup_rejects_unknown_arguments_before_external_commands(tmp_path):
     assert not docker_marker.exists()
 
 
+def test_backup_refuses_to_overwrite_existing_evidence(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    _write_executable(
+        tmp_path / "bin" / "date",
+        "#!/bin/sh\nprintf '20260101T000000Z\\n'\n",
+    )
+    _write_executable(
+        tmp_path / "bin" / "git",
+        "#!/bin/sh\nprintf 'deadbee\\n'\n",
+    )
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    existing = backup_dir / "talentscope-talentscope-20260101T000000Z-deadbee.dump.gz"
+    existing.write_bytes(b"existing evidence")
+    env["LOCAL_DIR"] = str(backup_dir)
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT), "--local-only"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "refusing to overwrite existing backup evidence" in result.stderr
+    assert existing.read_bytes() == b"existing evidence"
+    assert not docker_marker.exists()
+
+
 def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path):
     env, docker_marker = _restore_env(tmp_path)
     aws_marker = tmp_path / "aws-called"
