@@ -5,6 +5,7 @@ import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESTORE_SCRIPT = REPO_ROOT / "scripts" / "restore_db.sh"
+BACKUP_SCRIPT = REPO_ROOT / "scripts" / "backup_db.sh"
 
 
 def _write_executable(path: Path, contents: str) -> None:
@@ -30,6 +31,28 @@ def _restore_env(tmp_path: Path) -> tuple[dict[str, str], Path]:
         }
     )
     return env, docker_marker
+
+
+def test_backup_rejects_unknown_arguments_before_external_commands(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    aws_marker = tmp_path / "aws-called"
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        f"#!/bin/sh\ntouch '{aws_marker}'\nexit 99\n",
+    )
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT), "--local-onyl"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "usage: backup_db.sh [--local-only]" in result.stderr
+    assert not aws_marker.exists()
+    assert not docker_marker.exists()
 
 
 def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path):

@@ -26,7 +26,11 @@ PGDATABASE="${PGDATABASE:-talentscope}"
 PGUSER="${PGUSER:-talentscope}"
 LOCAL_DIR="${LOCAL_DIR:-backups}"
 LOCAL_ONLY=false
-[ "${1:-}" = "--local-only" ] && LOCAL_ONLY=true
+case "$#:${1:-}" in
+  0:) ;;
+  1:--local-only) LOCAL_ONLY=true ;;
+  *) echo "usage: backup_db.sh [--local-only]" >&2; exit 2 ;;
+esac
 
 # LocalStack accepts any credentials, but the AWS CLI refuses to run without
 # *some* value present, so default them only when talking to LocalStack.
