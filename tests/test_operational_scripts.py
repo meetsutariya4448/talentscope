@@ -110,6 +110,42 @@ def test_restore_rejects_ambiguous_backup_selection_before_external_commands(
     assert not docker_marker.exists()
 
 
+@pytest.mark.parametrize(
+    ("script", "arguments", "environment"),
+    [
+        (BACKUP_SCRIPT, ["--local-only"], {"PGDATABASE": "../outside"}),
+        (
+            RESTORE_SCRIPT,
+            ["--key", "talentscope-test.dump.gz", "--yes"],
+            {"PGUSER": "operator;drop_role"},
+        ),
+    ],
+)
+def test_database_tools_reject_unsafe_postgres_identifiers_before_external_commands(
+    tmp_path, script, arguments, environment
+):
+    env, docker_marker = _restore_env(tmp_path)
+    env.update(environment)
+    aws_marker = tmp_path / "aws-called"
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        f"#!/bin/sh\ntouch '{aws_marker}'\nexit 99\n",
+    )
+
+    result = subprocess.run(
+        ["bash", str(script), *arguments],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "must be PostgreSQL identifiers" in result.stderr
+    assert not aws_marker.exists()
+    assert not docker_marker.exists()
+
+
 def test_restore_validates_gzip_before_touching_database(tmp_path):
     env, docker_marker = _restore_env(tmp_path)
     _write_executable(

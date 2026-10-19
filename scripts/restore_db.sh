@@ -42,6 +42,12 @@ if [ "$SELECTIONS" -gt 1 ]; then
   echo "choose exactly one of --latest, --key NAME, or --list" >&2
   exit 2
 fi
+for identifier in "$PGDATABASE" "$PGUSER"; do
+  if [[ ! "$identifier" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [ "${#identifier}" -gt 63 ]; then
+    echo "PGDATABASE and PGUSER must be PostgreSQL identifiers of at most 63 characters" >&2
+    exit 2
+  fi
+done
 
 if [ -n "$AWS_ENDPOINT_URL" ]; then
   export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"

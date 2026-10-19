@@ -31,6 +31,12 @@ case "$#:${1:-}" in
   1:--local-only) LOCAL_ONLY=true ;;
   *) echo "usage: backup_db.sh [--local-only]" >&2; exit 2 ;;
 esac
+for identifier in "$PGDATABASE" "$PGUSER"; do
+  if [[ ! "$identifier" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [ "${#identifier}" -gt 63 ]; then
+    echo "PGDATABASE and PGUSER must be PostgreSQL identifiers of at most 63 characters" >&2
+    exit 2
+  fi
+done
 
 # LocalStack accepts any credentials, but the AWS CLI refuses to run without
 # *some* value present, so default them only when talking to LocalStack.
