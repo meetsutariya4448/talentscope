@@ -25,16 +25,23 @@ PGDATABASE="${PGDATABASE:-talentscope}"
 PGUSER="${PGUSER:-talentscope}"
 LOCAL_DIR="${LOCAL_DIR:-backups}"
 
-KEY=""; LATEST=false; LIST=false; ASSUME_YES=false
+KEY=""; LATEST=false; LIST=false; ASSUME_YES=false; SELECTIONS=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --key)    KEY="$2"; shift 2 ;;
-    --latest) LATEST=true; shift ;;
-    --list)   LIST=true; shift ;;
+    --key)
+      [ "$#" -ge 2 ] || { echo "--key requires a backup name" >&2; exit 2; }
+      KEY="$2"; SELECTIONS=$((SELECTIONS + 1)); shift 2
+      ;;
+    --latest) LATEST=true; SELECTIONS=$((SELECTIONS + 1)); shift ;;
+    --list)   LIST=true; SELECTIONS=$((SELECTIONS + 1)); shift ;;
     --yes|-y) ASSUME_YES=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+if [ "$SELECTIONS" -gt 1 ]; then
+  echo "choose exactly one of --latest, --key NAME, or --list" >&2
+  exit 2
+fi
 
 if [ -n "$AWS_ENDPOINT_URL" ]; then
   export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"

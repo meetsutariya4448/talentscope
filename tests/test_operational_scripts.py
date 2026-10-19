@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESTORE_SCRIPT = REPO_ROOT / "scripts" / "restore_db.sh"
@@ -73,6 +75,37 @@ def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path
 
     assert result.returncode == 2
     assert "Invalid backup key" in result.stderr
+    assert not aws_marker.exists()
+    assert not docker_marker.exists()
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        (["--key"], "--key requires a backup name"),
+        (["--key", "one.dump.gz", "--latest"], "choose exactly one"),
+    ],
+)
+def test_restore_rejects_ambiguous_backup_selection_before_external_commands(
+    tmp_path, arguments, message
+):
+    env, docker_marker = _restore_env(tmp_path)
+    aws_marker = tmp_path / "aws-called"
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        f"#!/bin/sh\ntouch '{aws_marker}'\nexit 99\n",
+    )
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), *arguments],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert message in result.stderr
     assert not aws_marker.exists()
     assert not docker_marker.exists()
 
