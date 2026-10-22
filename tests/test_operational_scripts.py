@@ -126,6 +126,33 @@ def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path
     assert not docker_marker.exists()
 
 
+def test_restore_preserves_existing_local_recovery_evidence(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    aws_marker = tmp_path / "aws-called"
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        f"#!/bin/sh\ntouch '{aws_marker}'\nexit 99\n",
+    )
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    existing = downloads / "talentscope-test.dump.gz"
+    existing.write_bytes(b"existing recovery evidence")
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--key", existing.name, "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "Refusing to overwrite existing local recovery evidence" in result.stderr
+    assert existing.read_bytes() == b"existing recovery evidence"
+    assert not aws_marker.exists()
+    assert not docker_marker.exists()
+
+
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [

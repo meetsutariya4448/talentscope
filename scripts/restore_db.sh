@@ -113,6 +113,11 @@ fi
 
 mkdir -p "$LOCAL_DIR"
 LOCAL_FILE="${LOCAL_DIR}/${KEY}"
+MANIFEST_FILE="${LOCAL_FILE}.manifest.json"
+if [ -e "$LOCAL_FILE" ] || [ -e "$MANIFEST_FILE" ]; then
+  echo "Refusing to overwrite existing local recovery evidence for ${KEY}." >&2
+  exit 1
+fi
 echo "  downloading s3://${BACKUP_BUCKET}/${KEY}"
 aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}" "$LOCAL_FILE" --only-show-errors
 
@@ -125,7 +130,6 @@ if ! gzip -t "$LOCAL_FILE" 2>/dev/null; then
 fi
 
 EXPECTED_COUNTS=""
-MANIFEST_FILE="${LOCAL_FILE}.manifest.json"
 if aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}.manifest.json" \
      "$MANIFEST_FILE" --only-show-errors 2>/dev/null; then
   BACKUP_BYTES="$(wc -c < "$LOCAL_FILE" | tr -d ' ')"
