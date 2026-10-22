@@ -25,4 +25,10 @@ else
   TS_STACK="dev"
 fi
 
-dc() { docker compose "${_TS_COMPOSE_ARGS[@]}" "$@"; }
+dc() {
+  if [ "${#_TS_COMPOSE_ARGS[@]}" -gt 0 ]; then
+    docker compose "${_TS_COMPOSE_ARGS[@]}" "$@"
+  else
+    docker compose "$@"
+  fi
+}

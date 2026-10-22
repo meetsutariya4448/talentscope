@@ -8,6 +8,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESTORE_SCRIPT = REPO_ROOT / "scripts" / "restore_db.sh"
 BACKUP_SCRIPT = REPO_ROOT / "scripts" / "backup_db.sh"
+COMPOSE_HELPER = REPO_ROOT / "scripts" / "_compose.sh"
 
 
 def _write_executable(path: Path, contents: str) -> None:
@@ -33,6 +34,34 @@ def _restore_env(tmp_path: Path) -> tuple[dict[str, str], Path]:
         }
     )
     return env, docker_marker
+
+
+def test_compose_helper_supports_empty_argument_array_under_nounset(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker_log = tmp_path / "docker.log"
+    _write_executable(
+        bin_dir / "docker",
+        f"#!/bin/sh\nprintf '%s\\n' \"$*\" > '{docker_log}'\n",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{bin_dir}:{env['PATH']}",
+            "_TS_STATE_FILE": str(tmp_path / "missing-deploy-state"),
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", f"set -u; . '{COMPOSE_HELPER}'; dc version"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert docker_log.read_text(encoding="utf-8").strip() == "compose version"
 
 
 def test_backup_rejects_unknown_arguments_before_external_commands(tmp_path):
