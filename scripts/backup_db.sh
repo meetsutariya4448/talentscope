@@ -68,6 +68,12 @@ if [ -e "$DEST" ] || [ -e "$MANIFEST" ]; then
   echo "ERROR: refusing to overwrite existing backup evidence for ${NAME}." >&2
   exit 1
 fi
+TEMP_DEST="$(mktemp "${LOCAL_DIR}/.${NAME}.XXXXXX")"
+TEMP_MANIFEST="$(mktemp "${LOCAL_DIR}/.${NAME}.manifest.XXXXXX")"
+cleanup_temporary_files() {
+  rm -f "$TEMP_DEST" "$TEMP_MANIFEST"
+}
+trap cleanup_temporary_files EXIT
 
 echo "=== Backing up ${PGDATABASE} ==="
 
@@ -84,17 +90,16 @@ COUNTS="$(dc exec -T postgres psql -U "$PGUSER" -d "$PGDATABASE" -tAc "
 echo "  source: $COUNTS"
 
 dc exec -T postgres pg_dump -U "$PGUSER" -d "$PGDATABASE" -Fc \
-  | gzip -9 > "$DEST"
+  | gzip -9 > "$TEMP_DEST"
 
-SIZE="$(wc -c < "$DEST" | tr -d ' ')"
+SIZE="$(wc -c < "$TEMP_DEST" | tr -d ' ')"
 if [ "$SIZE" -lt 1000 ]; then
   echo "ERROR: dump is only ${SIZE} bytes — refusing to treat this as a backup." >&2
   exit 1
 fi
-echo "  wrote: $DEST (${SIZE} bytes)"
 
 # A manifest next to the dump, so a restore can verify rather than assume.
-cat > "$MANIFEST" <<JSON
+cat > "$TEMP_MANIFEST" <<JSON
 {
   "backup": "${NAME}",
   "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -105,6 +110,11 @@ cat > "$MANIFEST" <<JSON
   "format": "pg_dump -Fc | gzip -9"
 }
 JSON
+
+mv "$TEMP_DEST" "$DEST"
+mv "$TEMP_MANIFEST" "$MANIFEST"
+trap - EXIT
+echo "  wrote: $DEST (${SIZE} bytes)"
 
 if [ "$LOCAL_ONLY" = true ]; then
   echo "  --local-only: skipping upload"

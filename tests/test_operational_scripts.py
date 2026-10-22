@@ -87,6 +87,23 @@ def test_backup_refuses_to_overwrite_existing_evidence(tmp_path):
     assert not docker_marker.exists()
 
 
+def test_backup_removes_partial_output_when_dump_fails(tmp_path):
+    env, _ = _restore_env(tmp_path)
+    backup_dir = tmp_path / "backups"
+    env["LOCAL_DIR"] = str(backup_dir)
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT), "--local-only"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert list(backup_dir.iterdir()) == []
+
+
 def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path):
     env, docker_marker = _restore_env(tmp_path)
     aws_marker = tmp_path / "aws-called"
