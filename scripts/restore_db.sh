@@ -63,7 +63,7 @@ fi
 
 list_backups() {
   aws "${AWS_ARGS[@]}" s3 ls "s3://${BACKUP_BUCKET}/" \
-    | grep -E '\.dump\.gz$' | sort
+    | awk '$4 ~ /\.dump\.gz$/ { print }' | sort
 }
 
 if [ "$LIST" = true ]; then

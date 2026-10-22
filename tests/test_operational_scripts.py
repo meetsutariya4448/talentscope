@@ -213,6 +213,23 @@ def test_restore_rejects_ambiguous_backup_selection_before_external_commands(
     assert not docker_marker.exists()
 
 
+def test_restore_latest_reports_empty_backup_bucket(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    _write_executable(tmp_path / "bin" / "aws", "#!/bin/sh\nexit 0\n")
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--latest", "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "No backups found" in result.stderr
+    assert not docker_marker.exists()
+
+
 @pytest.mark.parametrize(
     ("script", "arguments", "environment"),
     [
