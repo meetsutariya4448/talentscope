@@ -165,6 +165,16 @@ else
   echo "  (no manifest alongside this backup — cannot verify row counts)"
 fi
 
+# gzip integrity only proves that the compression stream is intact. Ask
+# pg_restore to parse the custom-format archive before terminating sessions or
+# dropping the existing database, so a valid gzip containing unrelated bytes
+# fails while recovery is still non-destructive.
+if ! gunzip -c "$LOCAL_FILE" \
+  | dc exec -T postgres pg_restore --list >/dev/null; then
+  echo "Downloaded backup is not a readable pg_dump archive; database was not changed." >&2
+  exit 1
+fi
+
 # Terminate other sessions first: DROP DATABASE fails while the app's
 # connection pool still holds connections, and the pool reconnects instantly,
 # so stopping the app is not enough on its own.

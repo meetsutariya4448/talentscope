@@ -309,3 +309,51 @@ done
     assert result.returncode == 1
     assert "backup manifest is invalid" in result.stderr
     assert not docker_marker.exists()
+
+
+def test_restore_validates_pg_dump_archive_before_touching_database(tmp_path):
+    env, _ = _restore_env(tmp_path)
+    archive = tmp_path / "valid-gzip-invalid-dump.gz"
+    subprocess.run(
+        ["gzip", "-c"],
+        input=b"not a PostgreSQL custom-format archive",
+        stdout=archive.open("wb"),
+        check=True,
+    )
+    env["VALID_ARCHIVE"] = str(archive)
+    docker_log = tmp_path / "docker.log"
+    destructive_marker = tmp_path / "destructive-command"
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        """#!/bin/sh
+for argument in "$@"; do
+  case "$argument" in
+    "$LOCAL_DIR"/*.dump.gz) cp "$VALID_ARCHIVE" "$argument"; exit 0 ;;
+  esac
+done
+exit 1
+""",
+    )
+    _write_executable(
+        tmp_path / "bin" / "docker",
+        f"""#!/bin/sh
+printf '%s\\n' "$*" >> '{docker_log}'
+case "$*" in
+  *"pg_restore --list"*) exit 1 ;;
+  *) touch '{destructive_marker}'; exit 99 ;;
+esac
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--key", "talentscope-test.dump.gz", "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "not a readable pg_dump archive" in result.stderr
+    assert "pg_restore --list" in docker_log.read_text(encoding="utf-8")
+    assert not destructive_marker.exists()
