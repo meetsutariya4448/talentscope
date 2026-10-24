@@ -111,6 +111,14 @@ if ! gunzip -c "$TEMP_DEST" \
   echo "ERROR: pg_dump output is not a readable custom-format archive." >&2
   exit 1
 fi
+SHA256="$(python3 - "$TEMP_DEST" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+)"
 
 # A manifest next to the dump, so a restore can verify rather than assume.
 cat > "$TEMP_MANIFEST" <<JSON
@@ -120,6 +128,7 @@ cat > "$TEMP_MANIFEST" <<JSON
   "database": "${PGDATABASE}",
   "git_sha": "${GIT_SHA}",
   "bytes": ${SIZE},
+  "sha256": "${SHA256}",
   "row_counts": "${COUNTS}",
   "format": "pg_dump -Fc | gzip -9"
 }

@@ -133,12 +133,14 @@ EXPECTED_COUNTS=""
 if aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}.manifest.json" \
      "$MANIFEST_FILE" --only-show-errors 2>/dev/null; then
   BACKUP_BYTES="$(wc -c < "$LOCAL_FILE" | tr -d ' ')"
-  if ! EXPECTED_COUNTS="$(python3 - "$MANIFEST_FILE" "$KEY" "$PGDATABASE" "$BACKUP_BYTES" <<'PY'
+  if ! EXPECTED_COUNTS="$(python3 - "$MANIFEST_FILE" "$LOCAL_FILE" "$KEY" "$PGDATABASE" "$BACKUP_BYTES" <<'PY'
+import hashlib
 import json
+import pathlib
 import re
 import sys
 
-manifest_path, expected_key, expected_database, expected_bytes = sys.argv[1:]
+manifest_path, archive_path, expected_key, expected_database, expected_bytes = sys.argv[1:]
 with open(manifest_path, encoding="utf-8") as manifest_file:
     manifest = json.load(manifest_file)
 if not isinstance(manifest, dict):
@@ -149,6 +151,13 @@ if manifest.get("database") != expected_database:
     raise ValueError("manifest database does not match the restore target")
 if isinstance(manifest.get("bytes"), bool) or manifest.get("bytes") != int(expected_bytes):
     raise ValueError("manifest byte count does not match the downloaded backup")
+expected_sha256 = manifest.get("sha256")
+if expected_sha256 is not None:
+    if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise ValueError("manifest sha256 is invalid")
+    actual_sha256 = hashlib.sha256(pathlib.Path(archive_path).read_bytes()).hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise ValueError("manifest sha256 does not match the downloaded backup")
 row_counts = manifest.get("row_counts")
 if not isinstance(row_counts, str) or not re.fullmatch(
     r"postings=\d+ companies=\d+ skills=\d+ embedded=\d+", row_counts

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -168,6 +169,7 @@ esac
     manifest = json.loads(Path(f"{backup}.manifest.json").read_text(encoding="utf-8"))
     assert backup.exists()
     assert manifest["created_at"] == "2026-10-23T23:59:59Z"
+    assert manifest["sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
 
 
 def test_backup_rejects_invalid_source_counts_before_dump(tmp_path):
@@ -407,6 +409,50 @@ def test_restore_rejects_invalid_manifest_before_touching_database(tmp_path):
 for argument in "$@"; do
   case "$argument" in
     "$LOCAL_DIR"/*.manifest.json) printf '{invalid json' > "$argument" ;;
+    "$LOCAL_DIR"/*.dump.gz) cp "$VALID_ARCHIVE" "$argument" ;;
+  esac
+done
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--key", "talentscope-test.dump.gz", "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "backup manifest is invalid" in result.stderr
+    assert not docker_marker.exists()
+
+
+def test_restore_rejects_manifest_checksum_mismatch_before_touching_database(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    archive = tmp_path / "valid.dump.gz"
+    subprocess.run(
+        ["gzip", "-c"],
+        input=b"archive payload",
+        stdout=archive.open("wb"),
+        check=True,
+    )
+    env["VALID_ARCHIVE"] = str(archive)
+    env["MANIFEST"] = json.dumps(
+        {
+            "backup": "talentscope-test.dump.gz",
+            "database": "talentscope",
+            "bytes": archive.stat().st_size,
+            "sha256": "0" * 64,
+            "row_counts": "postings=1 companies=1 skills=1 embedded=1",
+        }
+    )
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        """#!/bin/sh
+for argument in "$@"; do
+  case "$argument" in
+    "$LOCAL_DIR"/*.manifest.json) printf '%s' "$MANIFEST" > "$argument" ;;
     "$LOCAL_DIR"/*.dump.gz) cp "$VALID_ARCHIVE" "$argument" ;;
   esac
 done
