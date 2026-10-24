@@ -58,7 +58,8 @@ else
   AWS_ARGS=()
 fi
 
-TS="$(date -u +%Y%m%dT%H%M%SZ)"
+CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TS="${CREATED_AT//[-:]/}"
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 NAME="talentscope-${PGDATABASE}-${TS}-${GIT_SHA}.dump.gz"
 mkdir -p "$LOCAL_DIR"
@@ -102,7 +103,7 @@ fi
 cat > "$TEMP_MANIFEST" <<JSON
 {
   "backup": "${NAME}",
-  "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "created_at": "${CREATED_AT}",
   "database": "${PGDATABASE}",
   "git_sha": "${GIT_SHA}",
   "bytes": ${SIZE},

@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -131,6 +132,41 @@ def test_backup_removes_partial_output_when_dump_fails(tmp_path):
 
     assert result.returncode != 0
     assert list(backup_dir.iterdir()) == []
+
+
+def test_backup_uses_one_timestamp_for_filename_and_manifest(tmp_path):
+    env, _ = _restore_env(tmp_path)
+    backup_dir = tmp_path / "backups"
+    env["LOCAL_DIR"] = str(backup_dir)
+    _write_executable(
+        tmp_path / "bin" / "date",
+        "#!/bin/sh\nprintf '2026-10-23T23:59:59Z\\n'\n",
+    )
+    _write_executable(tmp_path / "bin" / "git", "#!/bin/sh\nprintf 'deadbee\\n'\n")
+    _write_executable(
+        tmp_path / "bin" / "docker",
+        """#!/bin/sh
+case "$*" in
+  *"-tAc"*) printf 'postings=1 companies=1 skills=1 embedded=1\n' ;;
+  *"pg_dump"*) head -c 2048 /dev/urandom ;;
+  *) exit 99 ;;
+esac
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT), "--local-only"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    backup = backup_dir / "talentscope-talentscope-20261023T235959Z-deadbee.dump.gz"
+    manifest = json.loads(Path(f"{backup}.manifest.json").read_text(encoding="utf-8"))
+    assert backup.exists()
+    assert manifest["created_at"] == "2026-10-23T23:59:59Z"
 
 
 def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path):
