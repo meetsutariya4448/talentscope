@@ -149,6 +149,7 @@ def test_backup_uses_one_timestamp_for_filename_and_manifest(tmp_path):
 case "$*" in
   *"-tAc"*) printf 'postings=1 companies=1 skills=1 embedded=1\n' ;;
   *"pg_dump"*) head -c 2048 /dev/urandom ;;
+  *"pg_restore --list"*) cat >/dev/null ;;
   *) exit 99 ;;
 esac
 """,
@@ -196,6 +197,37 @@ esac
     assert result.returncode == 1
     assert "source row-count query returned invalid evidence" in result.stderr
     assert not dump_marker.exists()
+    assert list(backup_dir.iterdir()) == []
+
+
+def test_backup_inspects_archive_before_publishing_evidence(tmp_path):
+    env, _ = _restore_env(tmp_path)
+    backup_dir = tmp_path / "backups"
+    inspect_marker = tmp_path / "pg-restore-called"
+    env["LOCAL_DIR"] = str(backup_dir)
+    _write_executable(
+        tmp_path / "bin" / "docker",
+        f"""#!/bin/sh
+case "$*" in
+  *"-tAc"*) printf 'postings=1 companies=1 skills=1 embedded=1\n' ;;
+  *"pg_dump"*) head -c 2048 /dev/urandom ;;
+  *"pg_restore --list"*) cat >/dev/null; touch '{inspect_marker}'; exit 1 ;;
+  *) exit 99 ;;
+esac
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT), "--local-only"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "not a readable custom-format archive" in result.stderr
+    assert inspect_marker.exists()
     assert list(backup_dir.iterdir()) == []
 
 

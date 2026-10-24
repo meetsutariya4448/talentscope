@@ -103,6 +103,15 @@ if [ "$SIZE" -lt 1000 ]; then
   exit 1
 fi
 
+# Size alone cannot distinguish a real custom-format dump from a large stream
+# of unrelated bytes. Parse the archive before publishing either local or
+# remote evidence.
+if ! gunzip -c "$TEMP_DEST" \
+  | dc exec -T postgres pg_restore --list >/dev/null; then
+  echo "ERROR: pg_dump output is not a readable custom-format archive." >&2
+  exit 1
+fi
+
 # A manifest next to the dump, so a restore can verify rather than assume.
 cat > "$TEMP_MANIFEST" <<JSON
 {
