@@ -169,6 +169,36 @@ esac
     assert manifest["created_at"] == "2026-10-23T23:59:59Z"
 
 
+def test_backup_rejects_invalid_source_counts_before_dump(tmp_path):
+    env, _ = _restore_env(tmp_path)
+    backup_dir = tmp_path / "backups"
+    dump_marker = tmp_path / "pg-dump-called"
+    env["LOCAL_DIR"] = str(backup_dir)
+    _write_executable(
+        tmp_path / "bin" / "docker",
+        f"""#!/bin/sh
+case "$*" in
+  *"-tAc"*) printf 'database warning instead of counts\n' ;;
+  *"pg_dump"*) touch '{dump_marker}'; exit 99 ;;
+  *) exit 99 ;;
+esac
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT), "--local-only"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "source row-count query returned invalid evidence" in result.stderr
+    assert not dump_marker.exists()
+    assert list(backup_dir.iterdir()) == []
+
+
 def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path):
     env, docker_marker = _restore_env(tmp_path)
     aws_marker = tmp_path / "aws-called"

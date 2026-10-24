@@ -88,6 +88,10 @@ COUNTS="$(dc exec -T postgres psql -U "$PGUSER" -d "$PGDATABASE" -tAc "
       || ' skills='||(SELECT count(*) FROM skills)
       || ' embedded='||(SELECT count(*) FROM postings WHERE embedding IS NOT NULL);
 " 2>/dev/null | tr -d '\r' | xargs)"
+if [[ ! "$COUNTS" =~ ^postings=(0|[1-9][0-9]*)\ companies=(0|[1-9][0-9]*)\ skills=(0|[1-9][0-9]*)\ embedded=(0|[1-9][0-9]*)$ ]]; then
+  echo "ERROR: source row-count query returned invalid evidence." >&2
+  exit 1
+fi
 echo "  source: $COUNTS"
 
 dc exec -T postgres pg_dump -U "$PGUSER" -d "$PGDATABASE" -Fc \
