@@ -118,22 +118,34 @@ if [ -e "$LOCAL_FILE" ] || [ -e "$MANIFEST_FILE" ]; then
   echo "Refusing to overwrite existing local recovery evidence for ${KEY}." >&2
   exit 1
 fi
+TEMP_DIR="$(mktemp -d "${LOCAL_DIR}/.restore.XXXXXX")"
+TEMP_LOCAL_FILE="${TEMP_DIR}/${KEY}"
+TEMP_MANIFEST_FILE="${TEMP_LOCAL_FILE}.manifest.json"
+cleanup_downloads() {
+  if [ -n "${TEMP_DIR:-}" ]; then
+    rm -f "$TEMP_LOCAL_FILE" "$TEMP_MANIFEST_FILE"
+    rmdir "$TEMP_DIR" 2>/dev/null || true
+  fi
+}
+trap cleanup_downloads EXIT
 echo "  downloading s3://${BACKUP_BUCKET}/${KEY}"
-aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}" "$LOCAL_FILE" --only-show-errors
+aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}" "$TEMP_LOCAL_FILE" --only-show-errors
 
 # Validate the archive before terminating sessions or dropping the database.
 # A truncated S3 object must fail while the existing database is still intact,
 # not halfway through the destructive restore sequence.
-if ! gzip -t "$LOCAL_FILE" 2>/dev/null; then
+if ! gzip -t "$TEMP_LOCAL_FILE" 2>/dev/null; then
   echo "Downloaded backup is not a valid gzip archive; database was not changed." >&2
   exit 1
 fi
 
 EXPECTED_COUNTS=""
+MANIFEST_DOWNLOADED=false
 if aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}.manifest.json" \
-     "$MANIFEST_FILE" --only-show-errors 2>/dev/null; then
-  BACKUP_BYTES="$(wc -c < "$LOCAL_FILE" | tr -d ' ')"
-  if ! EXPECTED_COUNTS="$(python3 - "$MANIFEST_FILE" "$LOCAL_FILE" "$KEY" "$PGDATABASE" "$BACKUP_BYTES" <<'PY'
+     "$TEMP_MANIFEST_FILE" --only-show-errors 2>/dev/null; then
+  MANIFEST_DOWNLOADED=true
+  BACKUP_BYTES="$(wc -c < "$TEMP_LOCAL_FILE" | tr -d ' ')"
+  if ! EXPECTED_COUNTS="$(python3 - "$TEMP_MANIFEST_FILE" "$TEMP_LOCAL_FILE" "$KEY" "$PGDATABASE" "$BACKUP_BYTES" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -178,11 +190,24 @@ fi
 # pg_restore to parse the custom-format archive before terminating sessions or
 # dropping the existing database, so a valid gzip containing unrelated bytes
 # fails while recovery is still non-destructive.
-if ! gunzip -c "$LOCAL_FILE" \
+if ! gunzip -c "$TEMP_LOCAL_FILE" \
   | dc exec -T postgres pg_restore --list >/dev/null; then
   echo "Downloaded backup is not a readable pg_dump archive; database was not changed." >&2
   exit 1
 fi
+
+# Publish only complete, validated downloads. Recovery evidence remains
+# available if a later database operation fails, while interrupted transfers
+# leave no misleading final filenames behind.
+mv "$TEMP_LOCAL_FILE" "$LOCAL_FILE"
+if [ "$MANIFEST_DOWNLOADED" = true ]; then
+  mv "$TEMP_MANIFEST_FILE" "$MANIFEST_FILE"
+else
+  rm -f "$TEMP_MANIFEST_FILE"
+fi
+rmdir "$TEMP_DIR"
+TEMP_DIR=""
+trap - EXIT
 
 # Terminate other sessions first: DROP DATABASE fails while the app's
 # connection pool still holds connections, and the pool reconnects instantly,

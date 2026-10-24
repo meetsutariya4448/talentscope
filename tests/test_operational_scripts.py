@@ -282,6 +282,34 @@ def test_restore_preserves_existing_local_recovery_evidence(tmp_path):
     assert not docker_marker.exists()
 
 
+def test_restore_removes_partial_download_after_transfer_failure(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    downloads = tmp_path / "downloads"
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        """#!/bin/sh
+for argument in "$@"; do
+  case "$argument" in
+    "$LOCAL_DIR"/*.dump.gz) printf 'partial transfer' > "$argument"; exit 7 ;;
+  esac
+done
+exit 7
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--key", "talentscope-test.dump.gz", "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 7
+    assert list(downloads.iterdir()) == []
+    assert not docker_marker.exists()
+
+
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [
