@@ -153,8 +153,23 @@ for remote_key in "$NAME" "${NAME}.manifest.json"; do
     exit 1
   fi
 done
+REMOTE_ARCHIVE_UPLOADED=false
+REMOTE_MANIFEST_UPLOADED=false
+cleanup_failed_upload() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    [ "$REMOTE_MANIFEST_UPLOADED" = false ] || \
+      aws "${AWS_ARGS[@]}" s3 rm "s3://${BACKUP_BUCKET}/${NAME}.manifest.json" --only-show-errors || true
+    [ "$REMOTE_ARCHIVE_UPLOADED" = false ] || \
+      aws "${AWS_ARGS[@]}" s3 rm "s3://${BACKUP_BUCKET}/${NAME}" --only-show-errors || true
+  fi
+  exit "$status"
+}
+trap cleanup_failed_upload EXIT
 aws "${AWS_ARGS[@]}" s3 cp "$DEST" "s3://${BACKUP_BUCKET}/${NAME}" --only-show-errors
+REMOTE_ARCHIVE_UPLOADED=true
 aws "${AWS_ARGS[@]}" s3 cp "$MANIFEST" "s3://${BACKUP_BUCKET}/${NAME}.manifest.json" --only-show-errors
+REMOTE_MANIFEST_UPLOADED=true
 
 # Verify the object is actually readable back, rather than trusting the exit
 # code of the upload. An unverified backup is a hope, not a backup.
@@ -165,5 +180,6 @@ if [ "$REMOTE_SIZE" != "$SIZE" ]; then
   exit 1
 fi
 
+trap - EXIT
 echo "  verified: s3://${BACKUP_BUCKET}/${NAME} (${REMOTE_SIZE} bytes)"
 echo "$NAME"
