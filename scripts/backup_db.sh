@@ -146,6 +146,13 @@ if [ "$LOCAL_ONLY" = true ]; then
 fi
 
 echo "  uploading to s3://${BACKUP_BUCKET}/"
+for remote_key in "$NAME" "${NAME}.manifest.json"; do
+  if aws "${AWS_ARGS[@]}" s3api head-object \
+       --bucket "$BACKUP_BUCKET" --key "$remote_key" >/dev/null 2>&1; then
+    echo "ERROR: refusing to overwrite existing s3://${BACKUP_BUCKET}/${remote_key}." >&2
+    exit 1
+  fi
+done
 aws "${AWS_ARGS[@]}" s3 cp "$DEST" "s3://${BACKUP_BUCKET}/${NAME}" --only-show-errors
 aws "${AWS_ARGS[@]}" s3 cp "$MANIFEST" "s3://${BACKUP_BUCKET}/${NAME}.manifest.json" --only-show-errors
 

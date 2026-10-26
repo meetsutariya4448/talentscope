@@ -233,6 +233,44 @@ esac
     assert list(backup_dir.iterdir()) == []
 
 
+def test_backup_refuses_to_overwrite_remote_evidence(tmp_path):
+    env, _ = _restore_env(tmp_path)
+    env["LOCAL_DIR"] = str(tmp_path / "backups")
+    upload_marker = tmp_path / "upload-called"
+    _write_executable(
+        tmp_path / "bin" / "docker",
+        """#!/bin/sh
+case "$*" in
+  *"-tAc"*) printf 'postings=1 companies=1 skills=1 embedded=1\n' ;;
+  *"pg_dump"*) head -c 2048 /dev/urandom ;;
+  *"pg_restore --list"*) cat >/dev/null ;;
+  *) exit 99 ;;
+esac
+""",
+    )
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        f"""#!/bin/sh
+case "$*" in
+  *"s3api head-object"*) exit 0 ;;
+  *"s3 cp"*) touch '{upload_marker}'; exit 99 ;;
+esac
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "refusing to overwrite existing s3://" in result.stderr
+    assert not upload_marker.exists()
+
+
 def test_restore_rejects_path_like_backup_keys_before_external_commands(tmp_path):
     env, docker_marker = _restore_env(tmp_path)
     aws_marker = tmp_path / "aws-called"
