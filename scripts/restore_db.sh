@@ -4,6 +4,7 @@
 #   bash scripts/restore_db.sh --latest
 #   bash scripts/restore_db.sh --key talentscope-talentscope-2026...dump.gz
 #   bash scripts/restore_db.sh --list
+#   bash scripts/restore_db.sh --key legacy.dump.gz --allow-unverified
 #
 # DESTRUCTIVE: drops and recreates the target database. It refuses to run
 # without --yes unless stdin is a terminal, so it cannot be triggered by
@@ -25,7 +26,7 @@ PGDATABASE="${PGDATABASE:-talentscope}"
 PGUSER="${PGUSER:-talentscope}"
 LOCAL_DIR="${LOCAL_DIR:-backups}"
 
-KEY=""; LATEST=false; LIST=false; ASSUME_YES=false; SELECTIONS=0
+KEY=""; LATEST=false; LIST=false; ASSUME_YES=false; ALLOW_UNVERIFIED=false; SELECTIONS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --key)
@@ -35,6 +36,7 @@ while [ $# -gt 0 ]; do
     --latest) LATEST=true; SELECTIONS=$((SELECTIONS + 1)); shift ;;
     --list)   LIST=true; SELECTIONS=$((SELECTIONS + 1)); shift ;;
     --yes|-y) ASSUME_YES=true; shift ;;
+    --allow-unverified) ALLOW_UNVERIFIED=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -79,7 +81,7 @@ if [ "$LATEST" = true ]; then
   [ -n "$KEY" ] || { echo "No backups found in s3://${BACKUP_BUCKET}/" >&2; exit 1; }
 fi
 
-[ -n "$KEY" ] || { echo "usage: restore_db.sh (--latest | --key NAME | --list) [--yes]" >&2; exit 2; }
+[ -n "$KEY" ] || { echo "usage: restore_db.sh (--latest | --key NAME | --list) [--yes] [--allow-unverified]" >&2; exit 2; }
 
 # backup_db.sh writes flat, timestamped object names. Refuse path-like or
 # option-like keys before using the value as both an S3 key and local path.
@@ -183,7 +185,11 @@ PY
   fi
   echo "  manifest says: ${EXPECTED_COUNTS}"
 else
-  echo "  (no manifest alongside this backup — cannot verify row counts)"
+  if [ "$ALLOW_UNVERIFIED" != true ]; then
+    echo "Backup manifest is missing; refusing an unverified restore. Use --allow-unverified only for reviewed legacy backups." >&2
+    exit 1
+  fi
+  echo "  WARNING: no manifest alongside this backup; integrity and row counts cannot be verified." >&2
 fi
 
 # gzip integrity only proves that the compression stream is intact. Ask
