@@ -181,6 +181,11 @@ if [ "$REMOTE_SHA256" != "$SHA256" ]; then
   echo "ERROR: uploaded object checksum does not match local backup." >&2
   exit 1
 fi
+if ! cmp -s "$MANIFEST" <(aws "${AWS_ARGS[@]}" s3 cp \
+     "s3://${BACKUP_BUCKET}/${NAME}.manifest.json" - --only-show-errors); then
+  echo "ERROR: uploaded manifest content does not match local manifest." >&2
+  exit 1
+fi
 
 trap - EXIT
 echo "  verified: s3://${BACKUP_BUCKET}/${NAME} (${SIZE} bytes, sha256=${SHA256})"
