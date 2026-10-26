@@ -171,15 +171,17 @@ REMOTE_ARCHIVE_UPLOADED=true
 aws "${AWS_ARGS[@]}" s3 cp "$MANIFEST" "s3://${BACKUP_BUCKET}/${NAME}.manifest.json" --only-show-errors
 REMOTE_MANIFEST_UPLOADED=true
 
-# Verify the object is actually readable back, rather than trusting the exit
-# code of the upload. An unverified backup is a hope, not a backup.
-REMOTE_SIZE="$(aws "${AWS_ARGS[@]}" s3api head-object \
-  --bucket "$BACKUP_BUCKET" --key "$NAME" --query ContentLength --output text 2>/dev/null || echo 0)"
-if [ "$REMOTE_SIZE" != "$SIZE" ]; then
-  echo "ERROR: uploaded object is ${REMOTE_SIZE} bytes, expected ${SIZE}." >&2
+# Read the object back and hash its content rather than trusting upload success
+# or object length. A same-sized truncation or replacement must not count as a
+# verified backup.
+REMOTE_SHA256="$(aws "${AWS_ARGS[@]}" s3 cp \
+  "s3://${BACKUP_BUCKET}/${NAME}" - --only-show-errors \
+  | python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+if [ "$REMOTE_SHA256" != "$SHA256" ]; then
+  echo "ERROR: uploaded object checksum does not match local backup." >&2
   exit 1
 fi
 
 trap - EXIT
-echo "  verified: s3://${BACKUP_BUCKET}/${NAME} (${REMOTE_SIZE} bytes)"
+echo "  verified: s3://${BACKUP_BUCKET}/${NAME} (${SIZE} bytes, sha256=${SHA256})"
 echo "$NAME"
