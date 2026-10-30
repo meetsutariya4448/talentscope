@@ -148,6 +148,7 @@ if aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}.manifest.json" \
   MANIFEST_DOWNLOADED=true
   BACKUP_BYTES="$(wc -c < "$TEMP_LOCAL_FILE" | tr -d ' ')"
   if ! EXPECTED_COUNTS="$(python3 - "$TEMP_MANIFEST_FILE" "$TEMP_LOCAL_FILE" "$KEY" "$PGDATABASE" "$BACKUP_BYTES" <<'PY'
+import datetime as dt
 import hashlib
 import json
 import pathlib
@@ -169,19 +170,37 @@ with open(manifest_path, encoding="utf-8") as manifest_file:
     manifest = json.load(manifest_file, object_pairs_hook=unique_object)
 if not isinstance(manifest, dict):
     raise ValueError("manifest root must be an object")
+required_fields = {
+    "backup", "created_at", "database", "git_sha", "bytes", "sha256", "row_counts",
+    "format",
+}
+missing_fields = sorted(required_fields - manifest.keys())
+if missing_fields:
+    raise ValueError(f"manifest is missing required fields: {', '.join(missing_fields)}")
 if manifest.get("backup") != expected_key:
     raise ValueError("manifest backup name does not match the selected object")
 if manifest.get("database") != expected_database:
     raise ValueError("manifest database does not match the restore target")
 if isinstance(manifest.get("bytes"), bool) or manifest.get("bytes") != int(expected_bytes):
     raise ValueError("manifest byte count does not match the downloaded backup")
-expected_sha256 = manifest.get("sha256")
-if expected_sha256 is not None:
-    if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
-        raise ValueError("manifest sha256 is invalid")
-    actual_sha256 = hashlib.sha256(pathlib.Path(archive_path).read_bytes()).hexdigest()
-    if actual_sha256 != expected_sha256:
-        raise ValueError("manifest sha256 does not match the downloaded backup")
+try:
+    created_at = dt.datetime.strptime(manifest["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+except (TypeError, ValueError) as error:
+    raise ValueError("manifest created_at is invalid") from error
+if created_at.strftime("%Y-%m-%dT%H:%M:%SZ") != manifest["created_at"]:
+    raise ValueError("manifest created_at is invalid")
+if not isinstance(manifest["git_sha"], str) or not re.fullmatch(
+    r"(?:[0-9a-f]{7,40}|unknown)", manifest["git_sha"]
+):
+    raise ValueError("manifest git_sha is invalid")
+if manifest["format"] != "pg_dump -Fc | gzip -9":
+    raise ValueError("manifest format is unsupported")
+expected_sha256 = manifest["sha256"]
+if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+    raise ValueError("manifest sha256 is invalid")
+actual_sha256 = hashlib.sha256(pathlib.Path(archive_path).read_bytes()).hexdigest()
+if actual_sha256 != expected_sha256:
+    raise ValueError("manifest sha256 does not match the downloaded backup")
 row_counts = manifest.get("row_counts")
 if not isinstance(row_counts, str) or not re.fullmatch(
     r"postings=\d+ companies=\d+ skills=\d+ embedded=\d+", row_counts

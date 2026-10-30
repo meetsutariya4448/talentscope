@@ -673,6 +673,24 @@ def test_restore_rejects_duplicate_manifest_fields_before_touching_database(tmp_
     assert not docker_marker.exists()
 
 
+def test_restore_requires_complete_manifest_schema_before_touching_database(tmp_path):
+    result, docker_marker = _run_restore_with_manifest(
+        tmp_path,
+        json.dumps(
+            {
+                "backup": "talentscope-test.dump.gz",
+                "database": "talentscope",
+                "bytes": 123,
+                "row_counts": "postings=1 companies=1 skills=1 embedded=1",
+            }
+        ),
+    )
+
+    assert result.returncode == 1
+    assert "backup manifest is invalid" in result.stderr
+    assert not docker_marker.exists()
+
+
 def test_restore_rejects_manifest_checksum_mismatch_before_touching_database(tmp_path):
     env, docker_marker = _restore_env(tmp_path)
     archive = tmp_path / "valid.dump.gz"
@@ -686,10 +704,13 @@ def test_restore_rejects_manifest_checksum_mismatch_before_touching_database(tmp
     env["MANIFEST"] = json.dumps(
         {
             "backup": "talentscope-test.dump.gz",
+            "created_at": "2026-10-29T00:00:00Z",
             "database": "talentscope",
+            "git_sha": "deadbee",
             "bytes": archive.stat().st_size,
             "sha256": "0" * 64,
             "row_counts": "postings=1 companies=1 skills=1 embedded=1",
+            "format": "pg_dump -Fc | gzip -9",
         }
     )
     _write_executable(
