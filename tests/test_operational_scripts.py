@@ -44,6 +44,9 @@ def _run_restore_with_manifest(tmp_path: Path, manifest: str):
     subprocess.run(
         ["gzip", "-c"], input=b"archive payload", stdout=archive.open("wb"), check=True
     )
+    manifest = manifest.replace("__BYTES__", str(archive.stat().st_size)).replace(
+        "__SHA256__", hashlib.sha256(archive.read_bytes()).hexdigest()
+    )
     env.update({"VALID_ARCHIVE": str(archive), "MANIFEST": manifest})
     _write_executable(
         tmp_path / "bin" / "aws",
@@ -227,6 +230,36 @@ esac
 
     assert result.returncode == 1
     assert "source row-count query returned invalid evidence" in result.stderr
+    assert not dump_marker.exists()
+    assert list(backup_dir.iterdir()) == []
+
+
+def test_backup_rejects_impossible_embedded_count_before_dump(tmp_path):
+    env, _ = _restore_env(tmp_path)
+    backup_dir = tmp_path / "backups"
+    dump_marker = tmp_path / "pg-dump-called"
+    env["LOCAL_DIR"] = str(backup_dir)
+    _write_executable(
+        tmp_path / "bin" / "docker",
+        f"""#!/bin/sh
+case "$*" in
+  *"-tAc"*) printf 'postings=1 companies=1 skills=1 embedded=2\n' ;;
+  *"pg_dump"*) touch '{dump_marker}'; exit 99 ;;
+  *) exit 99 ;;
+esac
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT), "--local-only"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "embedded posting count exceeds total postings" in result.stderr
     assert not dump_marker.exists()
     assert list(backup_dir.iterdir()) == []
 
@@ -684,6 +717,26 @@ def test_restore_requires_complete_manifest_schema_before_touching_database(tmp_
                 "row_counts": "postings=1 companies=1 skills=1 embedded=1",
             }
         ),
+    )
+
+    assert result.returncode == 1
+    assert "backup manifest is invalid" in result.stderr
+    assert not docker_marker.exists()
+
+
+def test_restore_rejects_impossible_manifest_counts_before_touching_database(tmp_path):
+    result, docker_marker = _run_restore_with_manifest(
+        tmp_path,
+        """{
+          "backup": "talentscope-test.dump.gz",
+          "created_at": "2026-10-29T00:00:00Z",
+          "database": "talentscope",
+          "git_sha": "deadbee",
+          "bytes": __BYTES__,
+          "sha256": "__SHA256__",
+          "row_counts": "postings=1 companies=1 skills=1 embedded=2",
+          "format": "pg_dump -Fc | gzip -9"
+        }""",
     )
 
     assert result.returncode == 1

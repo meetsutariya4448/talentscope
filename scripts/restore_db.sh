@@ -202,10 +202,14 @@ actual_sha256 = hashlib.sha256(pathlib.Path(archive_path).read_bytes()).hexdiges
 if actual_sha256 != expected_sha256:
     raise ValueError("manifest sha256 does not match the downloaded backup")
 row_counts = manifest.get("row_counts")
-if not isinstance(row_counts, str) or not re.fullmatch(
-    r"postings=\d+ companies=\d+ skills=\d+ embedded=\d+", row_counts
-):
+row_count_match = re.fullmatch(
+    r"postings=(\d+) companies=(\d+) skills=(\d+) embedded=(\d+)", row_counts
+) if isinstance(row_counts, str) else None
+if row_count_match is None:
     raise ValueError("manifest row_counts is invalid")
+postings, _, _, embedded = map(int, row_count_match.groups())
+if embedded > postings:
+    raise ValueError("manifest embedded count exceeds total postings")
 print(row_counts)
 PY
   )"; then

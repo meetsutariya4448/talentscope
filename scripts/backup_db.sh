@@ -88,8 +88,15 @@ COUNTS="$(dc exec -T postgres psql -U "$PGUSER" -d "$PGDATABASE" -tAc "
       || ' skills='||(SELECT count(*) FROM skills)
       || ' embedded='||(SELECT count(*) FROM postings WHERE embedding IS NOT NULL);
 " 2>/dev/null | tr -d '\r' | xargs)"
-if [[ ! "$COUNTS" =~ ^postings=(0|[1-9][0-9]*)\ companies=(0|[1-9][0-9]*)\ skills=(0|[1-9][0-9]*)\ embedded=(0|[1-9][0-9]*)$ ]]; then
+if [[ "$COUNTS" =~ ^postings=(0|[1-9][0-9]*)\ companies=(0|[1-9][0-9]*)\ skills=(0|[1-9][0-9]*)\ embedded=(0|[1-9][0-9]*)$ ]]; then
+  POSTINGS_COUNT="${BASH_REMATCH[1]}"
+  EMBEDDED_COUNT="${BASH_REMATCH[4]}"
+else
   echo "ERROR: source row-count query returned invalid evidence." >&2
+  exit 1
+fi
+if (( 10#$EMBEDDED_COUNT > 10#$POSTINGS_COUNT )); then
+  echo "ERROR: embedded posting count exceeds total postings." >&2
   exit 1
 fi
 echo "  source: $COUNTS"
