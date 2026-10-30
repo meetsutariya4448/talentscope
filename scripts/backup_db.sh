@@ -153,11 +153,27 @@ if [ "$LOCAL_ONLY" = true ]; then
 fi
 
 echo "  uploading to s3://${BACKUP_BUCKET}/"
+remote_object_exists() {
+  local remote_key=$1
+  local head_error
+  if head_error="$(aws "${AWS_ARGS[@]}" s3api head-object \
+       --bucket "$BACKUP_BUCKET" --key "$remote_key" 2>&1 >/dev/null)"; then
+    return 0
+  fi
+  if grep -Eiq '(404|Not Found|NoSuchKey)' <<<"$head_error"; then
+    return 1
+  fi
+  printf '%s\n' "$head_error" >&2
+  echo "ERROR: unable to verify whether s3://${BACKUP_BUCKET}/${remote_key} exists." >&2
+  return 2
+}
 for remote_key in "$NAME" "${NAME}.manifest.json"; do
-  if aws "${AWS_ARGS[@]}" s3api head-object \
-       --bucket "$BACKUP_BUCKET" --key "$remote_key" >/dev/null 2>&1; then
+  if remote_object_exists "$remote_key"; then
     echo "ERROR: refusing to overwrite existing s3://${BACKUP_BUCKET}/${remote_key}." >&2
     exit 1
+  else
+    remote_status=$?
+    [ "$remote_status" -eq 1 ] || exit "$remote_status"
   fi
 done
 REMOTE_ARCHIVE_UPLOADED=false

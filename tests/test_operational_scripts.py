@@ -333,6 +333,45 @@ esac
     assert not upload_marker.exists()
 
 
+def test_backup_stops_when_remote_collision_check_fails(tmp_path):
+    env, _ = _restore_env(tmp_path)
+    env["LOCAL_DIR"] = str(tmp_path / "backups")
+    upload_marker = tmp_path / "upload-called"
+    _write_executable(
+        tmp_path / "bin" / "docker",
+        """#!/bin/sh
+case "$*" in
+  *"-tAc"*) printf 'postings=1 companies=1 skills=1 embedded=1\n' ;;
+  *"pg_dump"*) head -c 2048 /dev/urandom ;;
+  *"pg_restore --list"*) cat >/dev/null ;;
+  *) exit 99 ;;
+esac
+""",
+    )
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        f"""#!/bin/sh
+case "$*" in
+  *"s3api head-object"*) echo 'AccessDenied' >&2; exit 7 ;;
+  *"s3 cp"*) touch '{upload_marker}'; exit 99 ;;
+esac
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(BACKUP_SCRIPT)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "unable to verify whether" in result.stderr
+    assert "AccessDenied" in result.stderr
+    assert not upload_marker.exists()
+
+
 def test_backup_removes_remote_archive_when_manifest_upload_fails(tmp_path):
     env, _ = _restore_env(tmp_path)
     env["LOCAL_DIR"] = str(tmp_path / "backups")
@@ -354,7 +393,7 @@ esac
         """#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_LOG"
 case "$*" in
-  *"s3api head-object"*) exit 1 ;;
+  *"s3api head-object"*) echo '404 Not Found' >&2; exit 1 ;;
   *"s3 cp"*".manifest.json"*) exit 7 ;;
   *"s3 cp"*) exit 0 ;;
   *"s3 rm"*".dump.gz") exit 0 ;;
@@ -399,7 +438,7 @@ esac
         """#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_LOG"
 case "$*" in
-  *"s3api head-object"*) exit 1 ;;
+  *"s3api head-object"*) echo '404 Not Found' >&2; exit 1 ;;
   *"s3 cp s3://"*".dump.gz -"*) head -c 2048 /dev/zero ;;
   *"s3 cp"*) exit 0 ;;
   *"s3 rm"*) exit 0 ;;
@@ -443,7 +482,7 @@ esac
         """#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_LOG"
 case "$*" in
-  *"s3api head-object"*) exit 1 ;;
+  *"s3api head-object"*) echo '404 Not Found' >&2; exit 1 ;;
   *"s3 cp s3://"*".dump.gz -"*) cat "$UPLOADED_ARCHIVE" ;;
   *"s3 cp s3://"*".manifest.json -"*) printf '{"corrupted": true}\n' ;;
   *"s3 cp"*".manifest.json"*) exit 0 ;;
