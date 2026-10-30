@@ -38,6 +38,35 @@ def _restore_env(tmp_path: Path) -> tuple[dict[str, str], Path]:
     return env, docker_marker
 
 
+def _run_restore_with_manifest(tmp_path: Path, manifest: str):
+    env, docker_marker = _restore_env(tmp_path)
+    archive = tmp_path / "valid.dump.gz"
+    subprocess.run(
+        ["gzip", "-c"], input=b"archive payload", stdout=archive.open("wb"), check=True
+    )
+    env.update({"VALID_ARCHIVE": str(archive), "MANIFEST": manifest})
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        """#!/bin/sh
+for argument in "$@"; do
+  case "$argument" in
+    "$LOCAL_DIR"/*.manifest.json) printf '%s' "$MANIFEST" > "$argument"; exit 0 ;;
+    "$LOCAL_DIR"/*.dump.gz) cp "$VALID_ARCHIVE" "$argument"; exit 0 ;;
+  esac
+done
+exit 1
+""",
+    )
+    result = subprocess.run(
+        ["bash", str(RESTORE_SCRIPT), "--key", "talentscope-test.dump.gz", "--yes"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    return result, docker_marker
+
+
 def test_compose_helper_supports_empty_argument_array_under_nounset(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -625,6 +654,18 @@ done
         env=env,
         capture_output=True,
         text=True,
+    )
+
+    assert result.returncode == 1
+    assert "backup manifest is invalid" in result.stderr
+    assert not docker_marker.exists()
+
+
+def test_restore_rejects_duplicate_manifest_fields_before_touching_database(tmp_path):
+    result, docker_marker = _run_restore_with_manifest(
+        tmp_path,
+        '{"backup":"talentscope-test.dump.gz",'
+        '"backup":"other.dump.gz"}',
     )
 
     assert result.returncode == 1

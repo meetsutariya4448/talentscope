@@ -154,9 +154,19 @@ import pathlib
 import re
 import sys
 
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate manifest field: {key}")
+        result[key] = value
+    return result
+
+
 manifest_path, archive_path, expected_key, expected_database, expected_bytes = sys.argv[1:]
 with open(manifest_path, encoding="utf-8") as manifest_file:
-    manifest = json.load(manifest_file)
+    manifest = json.load(manifest_file, object_pairs_hook=unique_object)
 if not isinstance(manifest, dict):
     raise ValueError("manifest root must be an object")
 if manifest.get("backup") != expected_key:
