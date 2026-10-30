@@ -123,9 +123,10 @@ fi
 TEMP_DIR="$(mktemp -d "${LOCAL_DIR}/.restore.XXXXXX")"
 TEMP_LOCAL_FILE="${TEMP_DIR}/${KEY}"
 TEMP_MANIFEST_FILE="${TEMP_LOCAL_FILE}.manifest.json"
+TEMP_MANIFEST_ERROR="${TEMP_DIR}/manifest-download.error"
 cleanup_downloads() {
   if [ -n "${TEMP_DIR:-}" ]; then
-    rm -f "$TEMP_LOCAL_FILE" "$TEMP_MANIFEST_FILE"
+    rm -f "$TEMP_LOCAL_FILE" "$TEMP_MANIFEST_FILE" "$TEMP_MANIFEST_ERROR"
     rmdir "$TEMP_DIR" 2>/dev/null || true
   fi
 }
@@ -144,7 +145,8 @@ fi
 EXPECTED_COUNTS=""
 MANIFEST_DOWNLOADED=false
 if aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${KEY}.manifest.json" \
-     "$TEMP_MANIFEST_FILE" --only-show-errors 2>/dev/null; then
+     "$TEMP_MANIFEST_FILE" --only-show-errors 2>"$TEMP_MANIFEST_ERROR"; then
+  rm -f "$TEMP_MANIFEST_ERROR"
   MANIFEST_DOWNLOADED=true
   BACKUP_BYTES="$(wc -c < "$TEMP_LOCAL_FILE" | tr -d ' ')"
   if ! EXPECTED_COUNTS="$(python3 - "$TEMP_MANIFEST_FILE" "$TEMP_LOCAL_FILE" "$KEY" "$PGDATABASE" "$BACKUP_BYTES" <<'PY'
@@ -218,6 +220,12 @@ PY
   fi
   echo "  manifest says: ${EXPECTED_COUNTS}"
 else
+  if ! grep -Eiq '(404|Not Found|NoSuchKey)' "$TEMP_MANIFEST_ERROR"; then
+    cat "$TEMP_MANIFEST_ERROR" >&2
+    echo "Backup manifest download failed; database was not changed." >&2
+    exit 1
+  fi
+  rm -f "$TEMP_MANIFEST_ERROR"
   if [ "$ALLOW_UNVERIFIED" != true ]; then
     echo "Backup manifest is missing; refusing an unverified restore. Use --allow-unverified only for reviewed legacy backups." >&2
     exit 1

@@ -806,7 +806,7 @@ def test_restore_requires_manifest_before_touching_database(tmp_path):
         """#!/bin/sh
 for argument in "$@"; do
   case "$argument" in
-    "$LOCAL_DIR"/*.manifest.json) exit 1 ;;
+    "$LOCAL_DIR"/*.manifest.json) echo '404 Not Found' >&2; exit 1 ;;
     "$LOCAL_DIR"/*.dump.gz) cp "$VALID_ARCHIVE" "$argument"; exit 0 ;;
   esac
 done
@@ -828,6 +828,47 @@ exit 1
     assert not docker_marker.exists()
 
 
+def test_restore_does_not_treat_manifest_transport_failure_as_missing(tmp_path):
+    env, docker_marker = _restore_env(tmp_path)
+    archive = tmp_path / "valid.dump.gz"
+    subprocess.run(
+        ["gzip", "-c"], input=b"archive payload", stdout=archive.open("wb"), check=True
+    )
+    env["VALID_ARCHIVE"] = str(archive)
+    _write_executable(
+        tmp_path / "bin" / "aws",
+        """#!/bin/sh
+for argument in "$@"; do
+  case "$argument" in
+    "$LOCAL_DIR"/*.manifest.json) echo 'AccessDenied' >&2; exit 7 ;;
+    "$LOCAL_DIR"/*.dump.gz) cp "$VALID_ARCHIVE" "$argument"; exit 0 ;;
+  esac
+done
+exit 1
+""",
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(RESTORE_SCRIPT),
+            "--key",
+            "talentscope-test.dump.gz",
+            "--yes",
+            "--allow-unverified",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "manifest download failed" in result.stderr
+    assert "AccessDenied" in result.stderr
+    assert not docker_marker.exists()
+
+
 def test_restore_validates_pg_dump_archive_before_touching_database(tmp_path):
     env, _ = _restore_env(tmp_path)
     archive = tmp_path / "valid-gzip-invalid-dump.gz"
@@ -845,6 +886,7 @@ def test_restore_validates_pg_dump_archive_before_touching_database(tmp_path):
         """#!/bin/sh
 for argument in "$@"; do
   case "$argument" in
+    "$LOCAL_DIR"/*.manifest.json) echo '404 Not Found' >&2; exit 1 ;;
     "$LOCAL_DIR"/*.dump.gz) cp "$VALID_ARCHIVE" "$argument"; exit 0 ;;
   esac
 done
