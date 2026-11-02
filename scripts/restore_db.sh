@@ -201,6 +201,8 @@ except (TypeError, ValueError) as error:
     raise ValueError("manifest created_at is invalid") from error
 if created_at.strftime("%Y-%m-%dT%H:%M:%SZ") != manifest["created_at"]:
     raise ValueError("manifest created_at is invalid")
+if created_at > dt.datetime.utcnow() + dt.timedelta(minutes=5):
+    raise ValueError("manifest created_at is implausibly in the future")
 if not isinstance(manifest["git_sha"], str) or not re.fullmatch(
     r"(?:[0-9a-f]{7,40}|unknown)", manifest["git_sha"]
 ):
