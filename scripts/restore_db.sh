@@ -186,7 +186,14 @@ if manifest.get("backup") != expected_key:
     raise ValueError("manifest backup name does not match the selected object")
 if manifest.get("database") != expected_database:
     raise ValueError("manifest database does not match the restore target")
-if isinstance(manifest.get("bytes"), bool) or manifest.get("bytes") != int(expected_bytes):
+manifest_bytes = manifest.get("bytes")
+if (
+    isinstance(manifest_bytes, bool)
+    or not isinstance(manifest_bytes, int)
+    or manifest_bytes <= 0
+):
+    raise ValueError("manifest byte count must be a positive integer")
+if manifest_bytes != int(expected_bytes):
     raise ValueError("manifest byte count does not match the downloaded backup")
 try:
     created_at = dt.datetime.strptime(manifest["created_at"], "%Y-%m-%dT%H:%M:%SZ")
