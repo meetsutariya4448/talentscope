@@ -215,7 +215,9 @@ if actual_sha256 != expected_sha256:
     raise ValueError("manifest sha256 does not match the downloaded backup")
 row_counts = manifest.get("row_counts")
 row_count_match = re.fullmatch(
-    r"postings=(\d+) companies=(\d+) skills=(\d+) embedded=(\d+)", row_counts
+    r"postings=(0|[1-9][0-9]*) companies=(0|[1-9][0-9]*) "
+    r"skills=(0|[1-9][0-9]*) embedded=(0|[1-9][0-9]*)",
+    row_counts,
 ) if isinstance(row_counts, str) else None
 if row_count_match is None:
     raise ValueError("manifest row_counts is invalid")
