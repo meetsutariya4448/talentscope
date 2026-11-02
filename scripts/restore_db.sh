@@ -179,6 +179,9 @@ required_fields = {
 missing_fields = sorted(required_fields - manifest.keys())
 if missing_fields:
     raise ValueError(f"manifest is missing required fields: {', '.join(missing_fields)}")
+unknown_fields = sorted(manifest.keys() - required_fields)
+if unknown_fields:
+    raise ValueError(f"manifest contains unknown fields: {', '.join(unknown_fields)}")
 if manifest.get("backup") != expected_key:
     raise ValueError("manifest backup name does not match the selected object")
 if manifest.get("database") != expected_database:
