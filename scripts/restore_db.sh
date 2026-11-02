@@ -221,7 +221,10 @@ row_count_match = re.fullmatch(
 ) if isinstance(row_counts, str) else None
 if row_count_match is None:
     raise ValueError("manifest row_counts is invalid")
-postings, _, _, embedded = map(int, row_count_match.groups())
+counts = tuple(map(int, row_count_match.groups()))
+if any(count > 2**63 - 1 for count in counts):
+    raise ValueError("manifest row count exceeds PostgreSQL bigint range")
+postings, _, _, embedded = counts
 if embedded > postings:
     raise ValueError("manifest embedded count exceeds total postings")
 print(row_counts)

@@ -824,6 +824,26 @@ def test_restore_rejects_noncanonical_manifest_counts_before_touching_database(t
     assert not docker_marker.exists()
 
 
+def test_restore_rejects_out_of_range_manifest_counts_before_touching_database(tmp_path):
+    result, docker_marker = _run_restore_with_manifest(
+        tmp_path,
+        """{
+          "backup": "talentscope-test.dump.gz",
+          "created_at": "2026-10-29T00:00:00Z",
+          "database": "talentscope",
+          "git_sha": "deadbee",
+          "bytes": __BYTES__,
+          "sha256": "__SHA256__",
+          "row_counts": "postings=9223372036854775808 companies=1 skills=1 embedded=1",
+          "format": "pg_dump -Fc | gzip -9"
+        }""",
+    )
+
+    assert result.returncode == 1
+    assert "backup manifest is invalid" in result.stderr
+    assert not docker_marker.exists()
+
+
 def test_restore_rejects_impossible_manifest_counts_before_touching_database(tmp_path):
     result, docker_marker = _run_restore_with_manifest(
         tmp_path,
