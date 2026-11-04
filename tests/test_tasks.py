@@ -308,6 +308,21 @@ def test_normalizers_reject_job_urls_with_invalid_authorities(url):
     assert result["url"] == ""
 
 
+def test_normalizers_reject_oversized_job_urls_and_use_a_safe_fallback():
+    oversized_url = f"https://example.test/{'x' * 2028}"
+    result = normalize_ashby(
+        {
+            "id": "ashby-oversized-url",
+            "jobUrl": oversized_url,
+            "applyUrl": "https://example.test/apply",
+        },
+        company_id=3,
+    )
+
+    assert len(oversized_url) == 2049
+    assert result["url"] == "https://example.test/apply"
+
+
 def test_ashby_normalizer_falls_back_to_first_safe_job_url():
     result = normalize_ashby(
         {

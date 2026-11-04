@@ -11,6 +11,7 @@ _NON_CONTENT_HTML_RE = re.compile(
     r"<(script|style)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
 )
 _MAX_STORED_SALARY = 9_999_999_999.99  # Posting salary columns are NUMERIC(12, 2).
+_MAX_JOB_URL_LENGTH = 2048
 
 
 def _text(value) -> str:
@@ -49,6 +50,8 @@ def _safe_url(*values) -> str:
     for value in values:
         candidate = _text(value).strip()
         if not candidate:
+            continue
+        if len(candidate) > _MAX_JOB_URL_LENGTH:
             continue
         if any(unicodedata.category(character).startswith("C") for character in candidate):
             continue
