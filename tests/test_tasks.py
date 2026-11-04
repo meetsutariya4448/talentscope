@@ -276,6 +276,16 @@ def test_normalizers_reject_unsafe_or_nonabsolute_job_urls(normalizer, job, args
     assert normalizer(job, *args)["url"] == ""
 
 
+@pytest.mark.parametrize("control", ["\n", "\r", "\t", "\u202e"])
+def test_normalizers_reject_job_urls_with_control_or_format_characters(control):
+    result = normalize_greenhouse(
+        {"id": "gh-control-url", "absolute_url": f"https://example.test/{control}job"},
+        company_id=1,
+    )
+
+    assert result["url"] == ""
+
+
 def test_ashby_normalizer_falls_back_to_first_safe_job_url():
     result = normalize_ashby(
         {

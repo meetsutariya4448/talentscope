@@ -50,6 +50,8 @@ def _safe_url(*values) -> str:
         candidate = _text(value).strip()
         if not candidate:
             continue
+        if any(unicodedata.category(character).startswith("C") for character in candidate):
+            continue
         try:
             parsed = urlsplit(candidate)
         except ValueError:
