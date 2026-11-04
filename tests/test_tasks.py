@@ -168,6 +168,20 @@ def test_lever_normalizer_rejects_invalid_epoch_timestamps(created_at):
     assert result["posted_at"] is None
 
 
+def test_normalizers_reject_implausibly_future_provider_timestamps():
+    greenhouse = normalize_greenhouse(
+        {"id": "gh-future-time", "updated_at": "2999-01-01T00:00:00Z"},
+        company_id=1,
+    )
+    lever = normalize_lever(
+        {"id": "lever-future-time", "createdAt": 32_503_680_000_000},
+        company_id=2,
+    )
+
+    assert greenhouse["posted_at"] is None
+    assert lever["posted_at"] is None
+
+
 @pytest.mark.parametrize(
     ("normalizer", "job", "args"),
     [

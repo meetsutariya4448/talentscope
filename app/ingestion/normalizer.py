@@ -2,7 +2,7 @@ import math
 import re
 import unicodedata
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html import unescape
 from urllib.parse import urlsplit
 
@@ -12,6 +12,7 @@ _NON_CONTENT_HTML_RE = re.compile(
 )
 _MAX_STORED_SALARY = 9_999_999_999.99  # Posting salary columns are NUMERIC(12, 2).
 _MAX_JOB_URL_LENGTH = 2048
+_MAX_PROVIDER_CLOCK_SKEW = timedelta(minutes=5)
 
 
 def _text(value) -> str:
@@ -112,8 +113,14 @@ def _iso_timestamp(value) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return (
+        parsed
+        if parsed <= datetime.now(timezone.utc) + _MAX_PROVIDER_CLOCK_SKEW
+        else None
+    )
 
 
 def _epoch_millis_timestamp(value) -> datetime | None:
@@ -123,9 +130,14 @@ def _epoch_millis_timestamp(value) -> datetime | None:
     if not math.isfinite(value) or value < 0:
         return None
     try:
-        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+        parsed = datetime.fromtimestamp(value / 1000, tz=timezone.utc)
     except (OverflowError, OSError, ValueError):
         return None
+    return (
+        parsed
+        if parsed <= datetime.now(timezone.utc) + _MAX_PROVIDER_CLOCK_SKEW
+        else None
+    )
 
 
 def normalize_greenhouse(job: dict, company_id: int) -> dict:
