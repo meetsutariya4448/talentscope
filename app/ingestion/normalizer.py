@@ -56,6 +56,8 @@ def _safe_url(*values) -> str:
             parsed = urlsplit(candidate)
         except ValueError:
             continue
+        if parsed.username is not None or parsed.password is not None:
+            continue
         if parsed.scheme.lower() in {"http", "https"} and parsed.netloc:
             return candidate
     return ""

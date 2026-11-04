@@ -286,6 +286,16 @@ def test_normalizers_reject_job_urls_with_control_or_format_characters(control):
     assert result["url"] == ""
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["https://user@example.test/job", "https://user:secret@example.test/job"],
+)
+def test_normalizers_reject_job_urls_with_embedded_credentials(url):
+    result = normalize_adzuna({"id": "adzuna-credential-url", "redirect_url": url})
+
+    assert result["url"] == ""
+
+
 def test_ashby_normalizer_falls_back_to_first_safe_job_url():
     result = normalize_ashby(
         {
