@@ -58,7 +58,12 @@ def _safe_url(*values) -> str:
             continue
         if parsed.username is not None or parsed.password is not None:
             continue
-        if parsed.scheme.lower() in {"http", "https"} and parsed.netloc:
+        try:
+            hostname = parsed.hostname
+            parsed.port  # Access validates an optional port before persistence.
+        except ValueError:
+            continue
+        if parsed.scheme.lower() in {"http", "https"} and hostname:
             return candidate
     return ""
 

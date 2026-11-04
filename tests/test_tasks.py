@@ -296,6 +296,18 @@ def test_normalizers_reject_job_urls_with_embedded_credentials(url):
     assert result["url"] == ""
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["https://:443/job", "https://example.test:not-a-port/job"],
+)
+def test_normalizers_reject_job_urls_with_invalid_authorities(url):
+    result = normalize_lever(
+        {"id": "lever-invalid-authority", "hostedUrl": url}, company_id=2
+    )
+
+    assert result["url"] == ""
+
+
 def test_ashby_normalizer_falls_back_to_first_safe_job_url():
     result = normalize_ashby(
         {
