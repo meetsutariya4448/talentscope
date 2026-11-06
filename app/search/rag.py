@@ -93,6 +93,9 @@ def _valid_cached_payload(payload) -> bool:
         )
     ):
         return False
+    source_ids = [source["id"] for source in sources]
+    if len(source_ids) != len(set(source_ids)):
+        return False
     if "cited_ids" in payload:
         cited_ids = payload["cited_ids"]
         if (
