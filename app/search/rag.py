@@ -74,6 +74,7 @@ def _valid_cached_payload(payload) -> bool:
     """Validate Redis data before returning it through the API contract."""
     if (
         not isinstance(payload, dict)
+        or not payload.keys() <= {"answer", "sources", "cited_ids", "model"}
         or not isinstance(payload.get("answer"), str)
         or not payload["answer"].strip()
     ):
