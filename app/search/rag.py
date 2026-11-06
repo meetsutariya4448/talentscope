@@ -25,6 +25,7 @@ CACHE_PREFIX = "rag:v1:"
 # attribute so existing imports and tests still resolve it.
 GROQ_MODEL  = settings.groq_model
 MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
+MAX_CACHED_ANSWER_CHARS = 10_000
 
 SYSTEM_PROMPT = (
     "You are a job-market analyst with access to a set of real job postings. "
@@ -77,6 +78,7 @@ def _valid_cached_payload(payload) -> bool:
         or not payload.keys() <= {"answer", "sources", "cited_ids", "model"}
         or not isinstance(payload.get("answer"), str)
         or not payload["answer"].strip()
+        or len(payload["answer"]) > MAX_CACHED_ANSWER_CHARS
     ):
         return False
     sources = payload.get("sources")
