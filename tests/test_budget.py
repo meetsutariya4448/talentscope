@@ -227,7 +227,7 @@ def test_rate_limit_fails_open_when_redis_is_down(monkeypatch):
 # The invariant that matters most: cache hits are free
 # ---------------------------------------------------------------------------
 
-def test_cache_hit_does_not_consume_budget(db, monkeypatch):
+def test_cache_hit_does_not_consume_budget():
     """A popular question must not burn the day's allowance.
 
     The gate is passed into answer_question and consulted only on the path that
@@ -248,15 +248,13 @@ def test_cache_hit_does_not_consume_budget(db, monkeypatch):
         "answer": "Cached answer [1]",
         "sources": [{"id": 1, "title": "Engineer"}],
         "cited_ids": [1],
-        "cached": False,
-        "latency_ms": 5,
     }
     redis_client = MagicMock()
     redis_client.get.return_value = _json.dumps(cached_payload)
 
     result = answer_question(
         "which companies hire rust engineers",
-        db=db,
+        db=MagicMock(),
         mode="fts",
         redis_client=redis_client,
         groq_api_key="fake-key",
