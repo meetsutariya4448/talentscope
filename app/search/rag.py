@@ -82,11 +82,15 @@ def _valid_cached_payload(payload) -> bool:
     ):
         return False
     sources = payload.get("sources")
-    if not isinstance(sources, list) or not all(
-        isinstance(source, dict)
-        and isinstance(source.get("id"), int)
-        and not isinstance(source.get("id"), bool)
-        for source in sources
+    if (
+        not isinstance(sources, list)
+        or len(sources) > N_SOURCES
+        or not all(
+            isinstance(source, dict)
+            and isinstance(source.get("id"), int)
+            and not isinstance(source.get("id"), bool)
+            for source in sources
+        )
     ):
         return False
     if "cited_ids" in payload:
