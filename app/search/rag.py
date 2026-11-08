@@ -11,6 +11,7 @@ No LangChain/LlamaIndex. Steps:
 import hashlib
 import json
 import logging
+import math
 import time
 
 from app.config import settings
@@ -28,6 +29,7 @@ MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
 MAX_CACHED_ANSWER_CHARS = 10_000
 MAX_CACHED_MODEL_CHARS = 200
 MAX_CACHED_TITLE_CHARS = 512
+MAX_CACHED_SALARY = 9_999_999_999.99
 CACHED_SOURCE_FIELDS = {
     "id", "title", "company_name", "location", "salary_min", "salary_max",
     "source", "url",
@@ -119,6 +121,23 @@ def _valid_cached_payload(payload) -> bool:
     source_ids = [source["id"] for source in sources]
     if len(source_ids) != len(set(source_ids)):
         return False
+    for source in sources:
+        salary_min = source.get("salary_min")
+        salary_max = source.get("salary_max")
+        for salary in (salary_min, salary_max):
+            if salary is not None and (
+                isinstance(salary, bool)
+                or not isinstance(salary, (int, float))
+                or not math.isfinite(salary)
+                or not 0 <= salary <= MAX_CACHED_SALARY
+            ):
+                return False
+        if (
+            salary_min is not None
+            and salary_max is not None
+            and salary_min > salary_max
+        ):
+            return False
     if "cited_ids" in payload:
         cited_ids = payload["cited_ids"]
         if (

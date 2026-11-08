@@ -109,7 +109,16 @@ def test_answer_question_provider_failure_returns_service_error(db):
 
 def test_answer_question_cache_hit():
     """A Redis hit returns the cached payload without calling Groq."""
-    cached_body = {"answer": "Cached market answer.", "sources": [], "model": "cached-model"}
+    cached_body = {
+        "answer": "Cached market answer.",
+        "sources": [{
+            "id": 1,
+            "title": "Volunteer Engineer",
+            "salary_min": 0,
+            "salary_max": 0,
+        }],
+        "model": "cached-model",
+    }
     mock_redis = MagicMock()
     mock_redis.get.return_value = json.dumps(cached_body)
 
@@ -125,6 +134,7 @@ def test_answer_question_cache_hit():
 
     assert result["answer"] == "Cached market answer."
     assert result["cached"] is True
+    assert result["sources"][0]["salary_min"] == 0
     MockGroq.assert_not_called()
 
 
@@ -203,6 +213,37 @@ def test_cache_key_collapses_insignificant_question_whitespace():
         {"answer": "Cached answer", "sources": [{"id": 1, "title": "   "}]},
         {"answer": "Cached answer", "sources": [{"id": 1, "title": 42}]},
         {"answer": "Cached answer", "sources": [{"id": 1, "title": "x" * 513}]},
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "salary_min": "unknown"}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "salary_min": float("nan")}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "salary_max": float("inf")}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "salary_min": -1}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "salary_max": 10_000_000_000}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [
+                {
+                    "id": 1,
+                    "title": "Engineer",
+                    "salary_min": 150_000,
+                    "salary_max": 100_000,
+                }
+            ],
+        },
         {"answer": "Cached answer", "sources": [], "model": "   "},
         {"answer": "Cached answer", "sources": [], "model": "model\nspoofed"},
         {"answer": "Cached answer", "sources": [], "model": "m" * 201},
