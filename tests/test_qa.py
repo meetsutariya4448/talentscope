@@ -128,6 +128,26 @@ def test_answer_question_cache_hit():
     MockGroq.assert_not_called()
 
 
+def test_cache_payload_excludes_response_only_metadata():
+    from app.search.rag import _cache_payload
+
+    payload = _cache_payload(
+        "Cached answer [1]",
+        [{"id": 1, "title": "Engineer"}],
+        [1],
+        "cached-model",
+    )
+
+    assert payload == {
+        "answer": "Cached answer [1]",
+        "sources": [{"id": 1, "title": "Engineer"}],
+        "cited_ids": [1],
+        "model": "cached-model",
+    }
+    assert "cached" not in payload
+    assert "latency_ms" not in payload
+
+
 def test_cache_key_changes_with_configured_model(monkeypatch):
     import app.search.rag as rag
 

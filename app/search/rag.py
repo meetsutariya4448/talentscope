@@ -72,6 +72,18 @@ def _parse_cited_ids(answer: str, postings: list[dict]) -> list[int]:
     return seen
 
 
+def _cache_payload(
+    answer: str, sources: list[dict], cited_ids: list[int], model: str | None
+) -> dict:
+    """Return only fields that are safe to persist and serve from Redis."""
+    return {
+        "answer": answer,
+        "sources": sources,
+        "cited_ids": cited_ids,
+        "model": model,
+    }
+
+
 def _valid_cached_payload(payload) -> bool:
     """Validate Redis data before returning it through the API contract."""
     if (
@@ -306,12 +318,7 @@ def answer_question(
             redis_client.setex(
                 cache_key,
                 CACHE_TTL,
-                json.dumps({
-                    "answer":    answer,
-                    "sources":   postings,
-                    "cited_ids": cited_ids,
-                    "model":     completion.model,
-                }),
+                json.dumps(_cache_payload(answer, postings, cited_ids, completion.model)),
             )
         except Exception:
             logger.warning("Redis write failed; answer not cached")

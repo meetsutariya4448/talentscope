@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.config import settings
 from app.database import SessionLocal
-from app.search.rag import CACHE_PREFIX, _cache_key, answer_question
+from app.search.rag import CACHE_PREFIX, _cache_key, _cache_payload, answer_question
 from app.tasks.redis_utils import get_redis
 
 # The questions the demo actually asks. Keep this list short and stable —
@@ -98,14 +98,12 @@ def main() -> None:
             if result.get("answer") is None:
                 print(f"  FAILED: {question} -> {result.get('error') or result.get('degraded')}")
                 continue
-            payload = {
-                "answer": result["answer"],
-                "sources": result["sources"],
-                "cited_ids": result.get("cited_ids", []),
-                "cached": False,
-                "model": result.get("model"),
-                "latency_ms": result.get("latency_ms", 0),
-            }
+            payload = _cache_payload(
+                result["answer"],
+                result["sources"],
+                result.get("cited_ids", []),
+                result.get("model"),
+            )
             # No expiry, unlike the request path's CACHE_TTL.
             rc.set(key, json.dumps(payload))
             written += 1
