@@ -107,6 +107,7 @@ def _valid_cached_payload(payload) -> bool:
             and source.keys() <= CACHED_SOURCE_FIELDS
             and isinstance(source.get("id"), int)
             and not isinstance(source.get("id"), bool)
+            and source["id"] > 0
             for source in sources
         )
     ):
