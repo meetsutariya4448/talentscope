@@ -27,6 +27,10 @@ GROQ_MODEL  = settings.groq_model
 MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
 MAX_CACHED_ANSWER_CHARS = 10_000
 MAX_CACHED_MODEL_CHARS = 200
+CACHED_SOURCE_FIELDS = {
+    "id", "title", "company_name", "location", "salary_min", "salary_max",
+    "source", "url",
+}
 
 SYSTEM_PROMPT = (
     "You are a job-market analyst with access to a set of real job postings. "
@@ -100,6 +104,7 @@ def _valid_cached_payload(payload) -> bool:
         or len(sources) > N_SOURCES
         or not all(
             isinstance(source, dict)
+            and source.keys() <= CACHED_SOURCE_FIELDS
             and isinstance(source.get("id"), int)
             and not isinstance(source.get("id"), bool)
             for source in sources

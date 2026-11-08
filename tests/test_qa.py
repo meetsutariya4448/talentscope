@@ -184,6 +184,7 @@ def test_cache_key_collapses_insignificant_question_whitespace():
         {"answer": "x" * 10_001, "sources": []},
         {"answer": "Cached answer", "sources": [{"id": i} for i in range(9)]},
         {"answer": "Cached answer", "sources": [{"id": 1}, {"id": 1}]},
+        {"answer": "Cached answer", "sources": [{"id": 1, "debug": "internal"}]},
         {"answer": "Cached answer", "sources": [], "model": "   "},
         {"answer": "Cached answer", "sources": [], "model": "model\nspoofed"},
         {"answer": "Cached answer", "sources": [], "model": "m" * 201},
