@@ -27,6 +27,7 @@ GROQ_MODEL  = settings.groq_model
 MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
 MAX_CACHED_ANSWER_CHARS = 10_000
 MAX_CACHED_MODEL_CHARS = 200
+MAX_CACHED_TITLE_CHARS = 512
 CACHED_SOURCE_FIELDS = {
     "id", "title", "company_name", "location", "salary_min", "salary_max",
     "source", "url",
@@ -108,6 +109,9 @@ def _valid_cached_payload(payload) -> bool:
             and isinstance(source.get("id"), int)
             and not isinstance(source.get("id"), bool)
             and source["id"] > 0
+            and isinstance(source.get("title"), str)
+            and bool(source["title"].strip())
+            and len(source["title"]) <= MAX_CACHED_TITLE_CHARS
             for source in sources
         )
     ):
