@@ -30,6 +30,7 @@ MAX_CACHED_ANSWER_CHARS = 10_000
 MAX_CACHED_MODEL_CHARS = 200
 MAX_CACHED_TITLE_CHARS = 512
 MAX_CACHED_COMPANY_NAME_CHARS = 255
+MAX_CACHED_LOCATION_CHARS = 255
 MAX_CACHED_SALARY = 9_999_999_999.99
 CACHED_SOURCE_FIELDS = {
     "id", "title", "company_name", "location", "salary_min", "salary_max",
@@ -122,6 +123,17 @@ def _valid_cached_payload(payload) -> bool:
                     and bool(source["company_name"].strip())
                     and len(source["company_name"]) <= MAX_CACHED_COMPANY_NAME_CHARS
                     and source["company_name"].isprintable()
+                )
+            )
+            and (
+                source.get("location") is None
+                or (
+                    isinstance(source["location"], str)
+                    and len(source["location"]) <= MAX_CACHED_LOCATION_CHARS
+                    and (
+                        not source["location"]
+                        or source["location"].isprintable()
+                    )
                 )
             )
             for source in sources
