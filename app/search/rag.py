@@ -137,6 +137,7 @@ def _valid_cached_payload(payload) -> bool:
             and isinstance(source.get("title"), str)
             and bool(source["title"].strip())
             and len(source["title"]) <= MAX_CACHED_TITLE_CHARS
+            and source["title"].isprintable()
             and (
                 source.get("company_name") is None
                 or (

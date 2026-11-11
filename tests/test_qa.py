@@ -213,6 +213,7 @@ def test_cache_key_collapses_insignificant_question_whitespace():
         {"answer": "Cached answer", "sources": [{"id": 1, "title": "   "}]},
         {"answer": "Cached answer", "sources": [{"id": 1, "title": 42}]},
         {"answer": "Cached answer", "sources": [{"id": 1, "title": "x" * 513}]},
+        {"answer": "Cached answer", "sources": [{"id": 1, "title": "Engineer\nspoofed"}]},
         {
             "answer": "Cached answer",
             "sources": [{"id": 1, "title": "Engineer", "company_name": 42}],
