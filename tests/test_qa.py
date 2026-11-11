@@ -259,6 +259,26 @@ def test_cache_key_collapses_insignificant_question_whitespace():
         },
         {
             "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "url": 42}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "url": "javascript:alert(1)"}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "url": "https://user@example.test/job"}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "url": "https://[invalid/job"}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "url": "https://example.test/" + "x" * 2028}],
+        },
+        {
+            "answer": "Cached answer",
             "sources": [{"id": 1, "title": "Engineer", "salary_min": "unknown"}],
         },
         {

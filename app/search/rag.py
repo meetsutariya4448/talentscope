@@ -13,6 +13,7 @@ import json
 import logging
 import math
 import time
+from urllib.parse import urlsplit
 
 from app.config import settings
 
@@ -32,6 +33,7 @@ MAX_CACHED_TITLE_CHARS = 512
 MAX_CACHED_COMPANY_NAME_CHARS = 255
 MAX_CACHED_LOCATION_CHARS = 255
 MAX_CACHED_SOURCE_CHARS = 50
+MAX_CACHED_URL_CHARS = 2048
 MAX_CACHED_SALARY = 9_999_999_999.99
 CACHED_SOURCE_FIELDS = {
     "id", "title", "company_name", "location", "salary_min", "salary_max",
@@ -94,6 +96,24 @@ def _cache_payload(
     }
 
 
+def _valid_cached_url(url) -> bool:
+    """Accept absent URLs or the same public HTTP(S) shape ingestion stores."""
+    if url is None or url == "":
+        return True
+    if not isinstance(url, str) or len(url) > MAX_CACHED_URL_CHARS or not url.isprintable():
+        return False
+    try:
+        parsed = urlsplit(url)
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+        )
+    except ValueError:
+        return False
+
+
 def _valid_cached_payload(payload) -> bool:
     """Validate Redis data before returning it through the API contract."""
     if (
@@ -146,6 +166,7 @@ def _valid_cached_payload(payload) -> bool:
                     and source["source"].isprintable()
                 )
             )
+            and _valid_cached_url(source.get("url"))
             for source in sources
         )
     ):
