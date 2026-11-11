@@ -29,6 +29,7 @@ MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
 MAX_CACHED_ANSWER_CHARS = 10_000
 MAX_CACHED_MODEL_CHARS = 200
 MAX_CACHED_TITLE_CHARS = 512
+MAX_CACHED_COMPANY_NAME_CHARS = 255
 MAX_CACHED_SALARY = 9_999_999_999.99
 CACHED_SOURCE_FIELDS = {
     "id", "title", "company_name", "location", "salary_min", "salary_max",
@@ -114,6 +115,15 @@ def _valid_cached_payload(payload) -> bool:
             and isinstance(source.get("title"), str)
             and bool(source["title"].strip())
             and len(source["title"]) <= MAX_CACHED_TITLE_CHARS
+            and (
+                source.get("company_name") is None
+                or (
+                    isinstance(source["company_name"], str)
+                    and bool(source["company_name"].strip())
+                    and len(source["company_name"]) <= MAX_CACHED_COMPANY_NAME_CHARS
+                    and source["company_name"].isprintable()
+                )
+            )
             for source in sources
         )
     ):
