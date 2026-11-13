@@ -101,7 +101,13 @@ def _valid_cached_url(url) -> bool:
     """Accept absent URLs or the same public HTTP(S) shape ingestion stores."""
     if url is None or url == "":
         return True
-    if not isinstance(url, str) or len(url) > MAX_CACHED_URL_CHARS or not url.isprintable():
+    if (
+        not isinstance(url, str)
+        or len(url) > MAX_CACHED_URL_CHARS
+        or not url.isprintable()
+        or any(char.isspace() for char in url)
+        or "\\" in url
+    ):
         return False
     try:
         parsed = urlsplit(url)
