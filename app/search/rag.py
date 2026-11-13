@@ -105,6 +105,8 @@ def _valid_cached_url(url) -> bool:
         return False
     try:
         parsed = urlsplit(url)
+        # Accessing ``port`` validates both its numeric form and range.
+        _ = parsed.port
         return (
             parsed.scheme in {"http", "https"}
             and bool(parsed.hostname)
