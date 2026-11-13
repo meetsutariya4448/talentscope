@@ -9,6 +9,7 @@ No LangChain/LlamaIndex. Steps:
 """
 
 import hashlib
+import ipaddress
 import json
 import logging
 import math
@@ -113,13 +114,24 @@ def _valid_cached_url(url) -> bool:
         parsed = urlsplit(url)
         # Accessing ``port`` validates both its numeric form and range.
         _ = parsed.port
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        if hostname == "localhost" or hostname.endswith(".localhost"):
+            return False
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            pass
+        else:
+            if not address.is_global:
+                return False
         return (
             parsed.scheme in {"http", "https"}
-            and bool(parsed.hostname)
             and parsed.username is None
             and parsed.password is None
         )
-    except ValueError:
+    except (TypeError, ValueError):
         return False
 
 
