@@ -122,6 +122,7 @@ def _valid_cached_payload(payload) -> bool:
         or not isinstance(payload.get("answer"), str)
         or not payload["answer"].strip()
         or len(payload["answer"]) > MAX_CACHED_ANSWER_CHARS
+        or not payload["answer"].isprintable()
     ):
         return False
     sources = payload.get("sources")

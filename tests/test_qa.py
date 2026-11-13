@@ -192,6 +192,7 @@ def test_cache_key_collapses_insignificant_question_whitespace():
         {"answer": "Cached answer", "sources": [], "cited_ids": None},
         {"answer": "Cached answer", "sources": [], "degraded": "budget_exhausted"},
         {"answer": "x" * 10_001, "sources": []},
+        {"answer": "Cached answer\nspoofed", "sources": []},
         {
             "answer": "Cached answer",
             "sources": [{"id": i + 1, "title": "Engineer"} for i in range(9)],
