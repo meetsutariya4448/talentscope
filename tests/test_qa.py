@@ -345,6 +345,29 @@ def test_answer_question_ignores_malformed_cache_payloads(cached_body):
     assert result["error"] == "GROQ_API_KEY not configured"
 
 
+def test_answer_question_rejects_oversized_cache_before_deserialization():
+    import app.search.rag as rag
+
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = "x" * (rag.MAX_CACHED_PAYLOAD_CHARS + 1)
+
+    with (
+        patch("app.search.rag.json.loads") as mock_loads,
+        patch("app.search.hybrid.fts_search", return_value=[]),
+    ):
+        result = rag.answer_question(
+            "What jobs exist?",
+            db=MagicMock(),
+            mode="fts",
+            redis_client=mock_redis,
+            groq_api_key="",
+        )
+
+    mock_loads.assert_not_called()
+    assert result["answer"] is None
+    assert result["cached"] is False
+
+
 def test_answer_question_cache_miss_then_write(db):
     """On a cache miss, the result is written to Redis with the configured TTL."""
     mock_msg = MagicMock()

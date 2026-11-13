@@ -28,6 +28,7 @@ CACHE_PREFIX = "rag:v1:"
 GROQ_MODEL  = settings.groq_model
 MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
 MAX_CACHED_ANSWER_CHARS = 10_000
+MAX_CACHED_PAYLOAD_CHARS = 65_536
 MAX_CACHED_MODEL_CHARS = 200
 MAX_CACHED_TITLE_CHARS = 512
 MAX_CACHED_COMPANY_NAME_CHARS = 255
@@ -287,18 +288,21 @@ def answer_question(
         try:
             raw = redis_client.get(cache_key)
             if raw:
-                payload = json.loads(raw)
-                if not _valid_cached_payload(payload):
-                    logger.warning("Ignoring malformed Redis Q&A cache entry")
+                if len(raw) > MAX_CACHED_PAYLOAD_CHARS:
+                    logger.warning("Ignoring oversized Redis Q&A cache entry")
                 else:
-                    # cited_ids may be absent in entries written before this field was added
-                    if "cited_ids" not in payload:
-                        payload["cited_ids"] = _parse_cited_ids(
-                            payload["answer"], payload["sources"]
-                        )
-                    payload["cached"] = True
-                    payload["latency_ms"] = round((time.monotonic() - t0) * 1000)
-                    return payload
+                    payload = json.loads(raw)
+                    if not _valid_cached_payload(payload):
+                        logger.warning("Ignoring malformed Redis Q&A cache entry")
+                    else:
+                        # cited_ids may be absent in entries written before this field was added
+                        if "cited_ids" not in payload:
+                            payload["cited_ids"] = _parse_cited_ids(
+                                payload["answer"], payload["sources"]
+                            )
+                        payload["cached"] = True
+                        payload["latency_ms"] = round((time.monotonic() - t0) * 1000)
+                        return payload
         except Exception:
             logger.warning("Redis read failed; proceeding without cache")
 
