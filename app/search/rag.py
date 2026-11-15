@@ -152,6 +152,7 @@ def _valid_cached_payload(payload) -> bool:
         or not payload.keys() <= {"answer", "sources", "cited_ids", "model"}
         or not isinstance(payload.get("answer"), str)
         or not payload["answer"].strip()
+        or payload["answer"] != payload["answer"].strip()
         or len(payload["answer"]) > MAX_CACHED_ANSWER_CHARS
         or not payload["answer"].isprintable()
     ):

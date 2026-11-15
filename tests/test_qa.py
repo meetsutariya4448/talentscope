@@ -187,6 +187,8 @@ def test_cache_key_collapses_insignificant_question_whitespace():
         [],
         {},
         {"answer": "   ", "sources": []},
+        {"answer": " Cached answer", "sources": []},
+        {"answer": "Cached answer ", "sources": []},
         {"answer": "Cached answer", "sources": "not-a-list"},
         {"answer": "Cached answer", "sources": [{"title": "Missing id"}]},
         {"answer": "Cached answer", "sources": [], "cited_ids": None},
