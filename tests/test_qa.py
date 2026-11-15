@@ -396,6 +396,27 @@ def test_answer_question_rejects_oversized_cache_before_deserialization():
     assert result["cached"] is False
 
 
+def test_answer_question_rejects_duplicate_cache_fields():
+    from app.search.rag import answer_question
+
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = (
+        '{"answer":"trusted","answer":"spoofed","sources":[]}'
+    )
+
+    with patch("app.search.hybrid.fts_search", return_value=[]):
+        result = answer_question(
+            "What jobs exist?",
+            db=MagicMock(),
+            mode="fts",
+            redis_client=mock_redis,
+            groq_api_key="",
+        )
+
+    assert result["answer"] is None
+    assert result["cached"] is False
+
+
 def test_answer_question_cache_miss_then_write(db):
     """On a cache miss, the result is written to Redis with the configured TTL."""
     mock_msg = MagicMock()

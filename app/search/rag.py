@@ -98,6 +98,16 @@ def _cache_payload(
     }
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Build a cache object while refusing ambiguous duplicate fields."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON field {key!r}")
+        result[key] = value
+    return result
+
+
 def _valid_cached_url(url) -> bool:
     """Accept absent URLs or the same public HTTP(S) shape ingestion stores."""
     if url is None or url == "":
@@ -311,7 +321,7 @@ def answer_question(
                 if len(raw) > MAX_CACHED_PAYLOAD_CHARS:
                     logger.warning("Ignoring oversized Redis Q&A cache entry")
                 else:
-                    payload = json.loads(raw)
+                    payload = json.loads(raw, object_pairs_hook=_unique_json_object)
                     if not _valid_cached_payload(payload):
                         logger.warning("Ignoring malformed Redis Q&A cache entry")
                     else:
