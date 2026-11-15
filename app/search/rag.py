@@ -189,7 +189,10 @@ def _valid_cached_payload(payload) -> bool:
                     and len(source["location"]) <= MAX_CACHED_LOCATION_CHARS
                     and (
                         not source["location"]
-                        or source["location"].isprintable()
+                        or (
+                            source["location"] == source["location"].strip()
+                            and source["location"].isprintable()
+                        )
                     )
                 )
             )
@@ -198,6 +201,7 @@ def _valid_cached_payload(payload) -> bool:
                 or (
                     isinstance(source["source"], str)
                     and bool(source["source"].strip())
+                    and source["source"] == source["source"].strip()
                     and len(source["source"]) <= MAX_CACHED_SOURCE_CHARS
                     and source["source"].isprintable()
                 )
@@ -239,6 +243,7 @@ def _valid_cached_payload(payload) -> bool:
     return model is None or (
         isinstance(model, str)
         and bool(model.strip())
+        and model == model.strip()
         and len(model) <= MAX_CACHED_MODEL_CHARS
         and model.isprintable()
     )

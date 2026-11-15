@@ -249,6 +249,14 @@ def test_cache_key_collapses_insignificant_question_whitespace():
         },
         {
             "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "location": " Remote"}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "location": "Remote "}],
+        },
+        {
+            "answer": "Cached answer",
             "sources": [{"id": 1, "title": "Engineer", "location": "x" * 256}],
         },
         {
@@ -262,6 +270,14 @@ def test_cache_key_collapses_insignificant_question_whitespace():
         {
             "answer": "Cached answer",
             "sources": [{"id": 1, "title": "Engineer", "source": "   "}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "source": " lever"}],
+        },
+        {
+            "answer": "Cached answer",
+            "sources": [{"id": 1, "title": "Engineer", "source": "lever "}],
         },
         {
             "answer": "Cached answer",
@@ -351,6 +367,8 @@ def test_cache_key_collapses_insignificant_question_whitespace():
             ],
         },
         {"answer": "Cached answer", "sources": [], "model": "   "},
+        {"answer": "Cached answer", "sources": [], "model": " model"},
+        {"answer": "Cached answer", "sources": [], "model": "model "},
         {"answer": "Cached answer", "sources": [], "model": "model\nspoofed"},
         {"answer": "Cached answer", "sources": [], "model": "m" * 201},
         {
