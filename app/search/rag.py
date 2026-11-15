@@ -169,6 +169,7 @@ def _valid_cached_payload(payload) -> bool:
             and source["id"] > 0
             and isinstance(source.get("title"), str)
             and bool(source["title"].strip())
+            and source["title"] == source["title"].strip()
             and len(source["title"]) <= MAX_CACHED_TITLE_CHARS
             and source["title"].isprintable()
             and (
@@ -176,6 +177,7 @@ def _valid_cached_payload(payload) -> bool:
                 or (
                     isinstance(source["company_name"], str)
                     and bool(source["company_name"].strip())
+                    and source["company_name"] == source["company_name"].strip()
                     and len(source["company_name"]) <= MAX_CACHED_COMPANY_NAME_CHARS
                     and source["company_name"].isprintable()
                 )
