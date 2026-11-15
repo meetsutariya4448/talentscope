@@ -29,7 +29,7 @@ CACHE_PREFIX = "rag:v1:"
 GROQ_MODEL  = settings.groq_model
 MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
 MAX_CACHED_ANSWER_CHARS = 10_000
-MAX_CACHED_PAYLOAD_CHARS = 65_536
+MAX_CACHED_PAYLOAD_BYTES = 65_536
 MAX_CACHED_MODEL_CHARS = 200
 MAX_CACHED_TITLE_CHARS = 512
 MAX_CACHED_COMPANY_NAME_CHARS = 255
@@ -318,7 +318,8 @@ def answer_question(
         try:
             raw = redis_client.get(cache_key)
             if raw:
-                if len(raw) > MAX_CACHED_PAYLOAD_CHARS:
+                raw_size = len(raw.encode("utf-8")) if isinstance(raw, str) else len(raw)
+                if raw_size > MAX_CACHED_PAYLOAD_BYTES:
                     logger.warning("Ignoring oversized Redis Q&A cache entry")
                 else:
                     payload = json.loads(raw, object_pairs_hook=_unique_json_object)

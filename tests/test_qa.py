@@ -377,7 +377,30 @@ def test_answer_question_rejects_oversized_cache_before_deserialization():
     import app.search.rag as rag
 
     mock_redis = MagicMock()
-    mock_redis.get.return_value = "x" * (rag.MAX_CACHED_PAYLOAD_CHARS + 1)
+    mock_redis.get.return_value = "x" * (rag.MAX_CACHED_PAYLOAD_BYTES + 1)
+
+    with (
+        patch("app.search.rag.json.loads") as mock_loads,
+        patch("app.search.hybrid.fts_search", return_value=[]),
+    ):
+        result = rag.answer_question(
+            "What jobs exist?",
+            db=MagicMock(),
+            mode="fts",
+            redis_client=mock_redis,
+            groq_api_key="",
+        )
+
+    mock_loads.assert_not_called()
+    assert result["answer"] is None
+    assert result["cached"] is False
+
+
+def test_answer_question_bounds_multibyte_cache_by_encoded_size():
+    import app.search.rag as rag
+
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = "😀" * (rag.MAX_CACHED_PAYLOAD_BYTES // 4 + 1)
 
     with (
         patch("app.search.rag.json.loads") as mock_loads,
