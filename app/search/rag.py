@@ -135,7 +135,8 @@ def _valid_cached_url(url) -> bool:
         try:
             address = ipaddress.ip_address(hostname)
         except ValueError:
-            pass
+            if "." not in hostname:
+                return False
         else:
             if not address.is_global:
                 return False
