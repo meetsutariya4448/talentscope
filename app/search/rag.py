@@ -30,6 +30,7 @@ GROQ_MODEL  = settings.groq_model
 MAX_TOKENS  = 400     # ~300 words; enough for a factual Q&A answer
 MAX_CACHED_ANSWER_CHARS = 10_000
 MAX_CACHED_PAYLOAD_BYTES = 65_536
+MAX_CACHED_POSTING_ID = 9_223_372_036_854_775_807
 MAX_CACHED_MODEL_CHARS = 200
 MAX_CACHED_TITLE_CHARS = 512
 MAX_CACHED_COMPANY_NAME_CHARS = 255
@@ -166,7 +167,7 @@ def _valid_cached_payload(payload) -> bool:
             and source.keys() <= CACHED_SOURCE_FIELDS
             and isinstance(source.get("id"), int)
             and not isinstance(source.get("id"), bool)
-            and source["id"] > 0
+            and 0 < source["id"] <= MAX_CACHED_POSTING_ID
             and isinstance(source.get("title"), str)
             and bool(source["title"].strip())
             and source["title"] == source["title"].strip()
