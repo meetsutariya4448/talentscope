@@ -128,7 +128,7 @@ def _valid_cached_url(url) -> bool:
         # Accessing ``port`` validates both its numeric form and range.
         _ = parsed.port
         hostname = parsed.hostname
-        if not hostname or hostname.endswith("."):
+        if not hostname or hostname.endswith(".") or "%" in hostname:
             return False
         if hostname == "localhost" or hostname.endswith(".localhost"):
             return False
