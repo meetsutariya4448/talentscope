@@ -123,6 +123,8 @@ def _valid_cached_url(url) -> bool:
         return False
     try:
         parsed = urlsplit(url)
+        if parsed.netloc.endswith(":"):
+            return False
         # Accessing ``port`` validates both its numeric form and range.
         _ = parsed.port
         hostname = parsed.hostname
