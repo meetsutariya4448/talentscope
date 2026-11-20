@@ -456,11 +456,17 @@ def answer_question(
     # --- 5. Cache write ---
     if redis_client is not None:
         try:
-            redis_client.setex(
-                cache_key,
-                CACHE_TTL,
-                json.dumps(_cache_payload(answer, postings, cited_ids, completion.model)),
+            cache_payload = _cache_payload(
+                answer, postings, cited_ids, completion.model
             )
+            if _valid_cached_payload(cache_payload):
+                redis_client.setex(
+                    cache_key,
+                    CACHE_TTL,
+                    json.dumps(cache_payload),
+                )
+            else:
+                logger.warning("Generated Q&A payload was not safe to cache")
         except Exception:
             logger.warning("Redis write failed; answer not cached")
 
