@@ -764,8 +764,8 @@ def test_citation_filtering_strips_out_of_range_reference(db):
     assert all(cid in valid_ids for cid in cited), (
         f"cited_ids contains IDs not in retrieved set: {set(cited) - valid_ids}"
     )
-    # The answer text still contains [9]/[10] as-is (we don't rewrite prose),
-    # but cited_ids must only list the validated ones
+    assert "[9]" not in result["answer"]
+    assert "[10]" not in result["answer"]
     assert 9 not in cited
     assert 10 not in cited
 
@@ -830,6 +830,16 @@ def test_parse_cited_ids_unit():
     # No citation markers
     assert _parse_cited_ids("No citations here.", postings) == []
 
+
+def test_invalid_citation_markers_are_removed_from_answer_text():
+    from app.search.rag import _remove_invalid_citation_markers
+
+    postings = [{"id": 101}, {"id": 202}]
+
+    assert _remove_invalid_citation_markers(
+        "Use [1], not [0], [3], or [99999999999999999999].",
+        postings,
+    ) == "Use [1], not , , or ."
 
 def test_parse_cited_ids_ignores_oversized_markers():
     from app.search.rag import _parse_cited_ids

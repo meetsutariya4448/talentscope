@@ -87,6 +87,19 @@ def _parse_cited_ids(answer: str, postings: list[dict]) -> list[int]:
     return seen
 
 
+def _remove_invalid_citation_markers(answer: str, postings: list[dict]) -> str:
+    """Remove numeric citation markers that cannot map to retrieved sources."""
+    import re
+
+    def replacement(match: re.Match) -> str:
+        digits = match.group(1)
+        if len(digits) <= 10 and 1 <= int(digits) <= len(postings):
+            return match.group(0)
+        return ""
+
+    return re.sub(r"\[(\d+)\]", replacement, answer).strip()
+
+
 def _cache_payload(
     answer: str, sources: list[dict], cited_ids: list[int], model: str | None
 ) -> dict:
@@ -426,6 +439,9 @@ def answer_question(
         answer = content.strip()
         if len(answer) > MAX_CACHED_ANSWER_CHARS:
             raise ValueError("Q&A provider returned an oversized answer")
+        answer = _remove_invalid_citation_markers(answer, postings)
+        if not answer:
+            raise ValueError("Q&A provider returned no supported content")
         if not _valid_model_name(completion.model):
             raise ValueError("Q&A provider returned invalid model metadata")
     except Exception:
