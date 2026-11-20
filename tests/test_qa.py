@@ -587,6 +587,33 @@ def test_answer_question_rejects_oversized_provider_answers():
     assert result["cached"] is False
 
 
+@pytest.mark.parametrize("model", [42, "", " model", "model\nspoofed", "m" * 201])
+def test_answer_question_rejects_invalid_provider_model_metadata(model):
+    import app.search.rag as rag
+
+    mock_completion = MagicMock()
+    mock_completion.choices = [MagicMock(message=MagicMock(content="Fresh answer."))]
+    mock_completion.model = model
+
+    with (
+        patch("app.search.rag._Groq") as mock_groq,
+        patch("app.search.hybrid.fts_search", return_value=[]),
+        patch("app.search.hybrid.fetch_postings_by_ids", return_value=[]),
+    ):
+        mock_groq.return_value.chat.completions.create.return_value = mock_completion
+        result = rag.answer_question(
+            "What jobs are open?",
+            db=MagicMock(),
+            mode="fts",
+            redis_client=None,
+            groq_api_key="test-key",
+        )
+
+    assert result["answer"] is None
+    assert result["error"] == "Q&A provider unavailable"
+    assert result["cached"] is False
+
+
 def test_answer_question_redis_unavailable_does_not_crash(db):
     """If Redis raises on get(), we fall through to Groq without crashing."""
     mock_msg = MagicMock()

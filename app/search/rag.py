@@ -149,6 +149,16 @@ def _valid_cached_url(url) -> bool:
         return False
 
 
+def _valid_model_name(model) -> bool:
+    return model is None or (
+        isinstance(model, str)
+        and bool(model.strip())
+        and model == model.strip()
+        and len(model) <= MAX_CACHED_MODEL_CHARS
+        and model.isprintable()
+    )
+
+
 def _valid_cached_payload(payload) -> bool:
     """Validate Redis data before returning it through the API contract."""
     if (
@@ -243,14 +253,7 @@ def _valid_cached_payload(payload) -> bool:
             or cited_ids != _parse_cited_ids(payload["answer"], sources)
         ):
             return False
-    model = payload.get("model")
-    return model is None or (
-        isinstance(model, str)
-        and bool(model.strip())
-        and model == model.strip()
-        and len(model) <= MAX_CACHED_MODEL_CHARS
-        and model.isprintable()
-    )
+    return _valid_model_name(payload.get("model"))
 
 
 def _cache_key(question: str, mode: str) -> str:
@@ -423,6 +426,8 @@ def answer_question(
         answer = content.strip()
         if len(answer) > MAX_CACHED_ANSWER_CHARS:
             raise ValueError("Q&A provider returned an oversized answer")
+        if not _valid_model_name(completion.model):
+            raise ValueError("Q&A provider returned invalid model metadata")
     except Exception:
         # Authentication, rate-limit, timeout, and malformed provider
         # responses are upstream availability failures.  Return the same
