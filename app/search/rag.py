@@ -421,6 +421,8 @@ def answer_question(
         if not isinstance(content, str) or not content.strip():
             raise ValueError("Q&A provider returned an empty answer")
         answer = content.strip()
+        if len(answer) > MAX_CACHED_ANSWER_CHARS:
+            raise ValueError("Q&A provider returned an oversized answer")
     except Exception:
         # Authentication, rate-limit, timeout, and malformed provider
         # responses are upstream availability failures.  Return the same
