@@ -169,6 +169,16 @@ def test_cache_key_changes_with_configured_model(monkeypatch):
     assert first != second
 
 
+def test_cache_key_changes_with_grounding_prompt(monkeypatch):
+    import app.search.rag as rag
+
+    first = rag._cache_key("What roles are open?", "hybrid")
+    monkeypatch.setattr(rag, "SYSTEM_PROMPT", rag.SYSTEM_PROMPT + " Cite every claim.")
+    second = rag._cache_key("What roles are open?", "hybrid")
+
+    assert first != second
+
+
 def test_cache_key_collapses_insignificant_question_whitespace():
     from app.search.rag import _cache_key
 

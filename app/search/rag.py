@@ -261,7 +261,10 @@ def _cache_key(question: str, mode: str) -> str:
     # (and spend another budget unit) by varying spaces or line breaks.
     normalized_question = " ".join(question.split())
     digest = hashlib.sha256(
-        f"{normalized_question}|{mode}|{N_SOURCES}|{GROQ_MODEL}".encode()
+        (
+            f"{normalized_question}|{mode}|{N_SOURCES}|{GROQ_MODEL}|"
+            f"{MAX_TOKENS}|{SYSTEM_PROMPT}"
+        ).encode()
     ).hexdigest()
     return f"{CACHE_PREFIX}{digest}"
 
