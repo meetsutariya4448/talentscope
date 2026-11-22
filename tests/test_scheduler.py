@@ -113,6 +113,15 @@ class TestNextBatch:
         with pytest.raises(ValueError, match="greater than zero"):
             _next_batch(_make_redis_mock(), "key", [1], batch_size)
 
+    @pytest.mark.parametrize("cursor", [None, True, 0, -1, "1"])
+    def test_invalid_redis_cursors_are_rejected(self, cursor):
+        from app.tasks.scheduler import _next_batch
+        redis_client = MagicMock()
+        redis_client.incr.return_value = cursor
+
+        with pytest.raises(ValueError, match="positive integer"):
+            _next_batch(redis_client, "key", [1, 2], 1)
+
     def test_first_call_returns_batch_0(self):
         from app.tasks.scheduler import _next_batch
         rc = _make_redis_mock()

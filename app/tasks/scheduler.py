@@ -55,7 +55,10 @@ def _next_batch(redis_client, key: str, items: list, batch_size: int) -> list:
         return []
 
     n_batches = math.ceil(len(items) / batch_size)
-    batch_no = (redis_client.incr(key) - 1) % n_batches
+    cursor = redis_client.incr(key)
+    if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor <= 0:
+        raise ValueError("Redis batch cursor must be a positive integer")
+    batch_no = (cursor - 1) % n_batches
     start = batch_no * batch_size
     return items[start:start + batch_size]
 
