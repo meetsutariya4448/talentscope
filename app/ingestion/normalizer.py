@@ -1,3 +1,4 @@
+import ipaddress
 import math
 import re
 import unicodedata
@@ -67,7 +68,20 @@ def _safe_url(*values) -> str:
             parsed.port  # Access validates an optional port before persistence.
         except ValueError:
             continue
-        if parsed.scheme.lower() in {"http", "https"} and hostname:
+        if not hostname:
+            continue
+        hostname = hostname.lower()
+        if hostname == "localhost" or hostname.endswith(".localhost"):
+            continue
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            if "." not in hostname:
+                continue
+        else:
+            if not address.is_global:
+                continue
+        if parsed.scheme.lower() in {"http", "https"}:
             return candidate
     return ""
 

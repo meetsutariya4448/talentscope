@@ -312,6 +312,27 @@ def test_normalizers_reject_job_urls_with_embedded_credentials(url):
 
 @pytest.mark.parametrize(
     "url",
+    [
+        "http://localhost/job",
+        "https://jobs.localhost/job",
+        "http://127.0.0.1/job",
+        "http://10.0.0.1/job",
+        "http://[::1]/job",
+        "https://intranet/job",
+    ],
+)
+def test_normalizers_reject_private_or_local_job_urls(url):
+    result = normalize_adzuna({
+        "id": "adzuna-private-url",
+        "title": "Engineer",
+        "redirect_url": url,
+    })
+
+    assert result["url"] == ""
+
+
+@pytest.mark.parametrize(
+    "url",
     ["https://:443/job", "https://example.test:not-a-port/job"],
 )
 def test_normalizers_reject_job_urls_with_invalid_authorities(url):
