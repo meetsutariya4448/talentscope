@@ -27,6 +27,19 @@ def _company(db, slug: str) -> Company:
 # ingest_posting: duplicate delivery of an unchanged posting
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("title", [None, "", "   ", ["Engineer"]])
+def test_ingest_rejects_postings_without_a_valid_title(title):
+    db = MagicMock()
+
+    with pytest.raises(ValueError, match="nonempty string"):
+        ingest_posting(
+            db,
+            {"source": "greenhouse", "source_id": "job-1", "title": title},
+            {},
+        )
+
+    db.execute.assert_not_called()
+
 def test_resighted_posting_refreshes_company_attribution():
     existing = MagicMock()
     existing.id = 41

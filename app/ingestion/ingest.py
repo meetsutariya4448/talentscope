@@ -63,6 +63,10 @@ def ingest_posting(
     row) updated in place rather than being silently ignored, which is what
     turns a one-shot search index into a daily panel.
     """
+    title = data.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("posting title must be a nonempty string")
+
     source = data["source"]
     source_id = data["source_id"]
 
