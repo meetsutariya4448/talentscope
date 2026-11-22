@@ -558,6 +558,35 @@ def test_answer_question_does_not_write_invalid_generated_cache_payload():
     mock_redis.setex.assert_not_called()
 
 
+def test_answer_question_does_not_write_oversized_generated_cache_payload():
+    import app.search.rag as rag
+
+    answer = "🚀" * 6_000
+    assert len(answer) < rag.MAX_CACHED_ANSWER_CHARS
+    mock_completion = MagicMock()
+    mock_completion.choices = [MagicMock(message=MagicMock(content=answer))]
+    mock_completion.model = "test-model"
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+
+    with (
+        patch("app.search.rag._Groq") as mock_groq,
+        patch("app.search.hybrid.fts_search", return_value=[]),
+        patch("app.search.hybrid.fetch_postings_by_ids", return_value=[]),
+    ):
+        mock_groq.return_value.chat.completions.create.return_value = mock_completion
+        result = rag.answer_question(
+            "What jobs are open?",
+            db=MagicMock(),
+            mode="fts",
+            redis_client=mock_redis,
+            groq_api_key="test-key",
+        )
+
+    assert result["answer"] == answer
+    mock_redis.setex.assert_not_called()
+
+
 def test_answer_question_rejects_empty_provider_answers():
     from app.search.rag import answer_question
 

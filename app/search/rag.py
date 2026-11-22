@@ -476,11 +476,15 @@ def answer_question(
                 answer, postings, cited_ids, completion.model
             )
             if _valid_cached_payload(cache_payload):
-                redis_client.setex(
-                    cache_key,
-                    CACHE_TTL,
-                    json.dumps(cache_payload),
-                )
+                serialized_payload = json.dumps(cache_payload)
+                if len(serialized_payload.encode("utf-8")) <= MAX_CACHED_PAYLOAD_BYTES:
+                    redis_client.setex(
+                        cache_key,
+                        CACHE_TTL,
+                        serialized_payload,
+                    )
+                else:
+                    logger.warning("Generated Q&A payload exceeded the cache size limit")
             else:
                 logger.warning("Generated Q&A payload was not safe to cache")
         except Exception:
