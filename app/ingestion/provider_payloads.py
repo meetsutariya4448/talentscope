@@ -1,5 +1,7 @@
 from collections.abc import Mapping
 
+MAX_PROVIDER_JOBS_PER_RESPONSE = 10_000
+
 
 def extract_job_list(payload: object, *, key: str | None = None) -> list[dict]:
     """Return a provider's job list only when the response shape is trustworthy.
@@ -15,6 +17,8 @@ def extract_job_list(payload: object, *, key: str | None = None) -> list[dict]:
 
     if not isinstance(payload, list):
         raise ValueError("provider job collection must be a list")
+    if len(payload) > MAX_PROVIDER_JOBS_PER_RESPONSE:
+        raise ValueError("provider job collection exceeds the response size limit")
     if not all(isinstance(job, Mapping) for job in payload):
         raise ValueError("provider job collection contains a non-object entry")
     return [dict(job) for job in payload]
