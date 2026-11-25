@@ -28,6 +28,10 @@ def test_load_target_companies_accepts_valid_entries(tmp_path):
 @pytest.mark.parametrize(
     "contents",
     [
+        "[]\n",
+        "false\n",
+        "0\n",
+        "''\n",
         "- greenhouse\n",
         "unknown:\n  - {token: acme}\n",
         "greenhouse: {token: acme}\n",
@@ -51,6 +55,10 @@ def test_load_target_companies_accepts_valid_entries(tmp_path):
 def test_load_target_companies_rejects_unsafe_config(contents, tmp_path):
     with pytest.raises(ValueError):
         load_target_companies(_write_config(tmp_path, contents))
+
+
+def test_load_target_companies_accepts_an_empty_document(tmp_path):
+    assert load_target_companies(_write_config(tmp_path, "# No boards configured\n")) == {}
 
 
 def test_sync_updates_existing_company_display_name():

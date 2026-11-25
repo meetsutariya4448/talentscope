@@ -54,7 +54,9 @@ def load_target_companies(path: Path = CONFIG_PATH) -> dict[str, list[dict]]:
     verify each token actually returns postings before adding it; a bad token
     just shows up as a permanent 'http_error' and pollutes the health check."""
     with open(path, encoding="utf-8") as f:
-        data = yaml.load(f, Loader=_UniqueKeyLoader) or {}
+        data = yaml.load(f, Loader=_UniqueKeyLoader)
+    if data is None:
+        data = {}
     if not isinstance(data, dict):
         raise ValueError("target company config must be a mapping of sources to entries")
 
