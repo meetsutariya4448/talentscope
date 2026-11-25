@@ -124,12 +124,12 @@ def _iso_timestamp(value) -> datetime | None:
     encoded = f"{value[:-1]}+00:00" if value.endswith("Z") else value
     try:
         parsed = datetime.fromisoformat(encoded)
-    except ValueError:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+    except (OverflowError, ValueError):
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    else:
-        parsed = parsed.astimezone(timezone.utc)
     return (
         parsed
         if parsed <= datetime.now(timezone.utc) + _MAX_PROVIDER_CLOCK_SKEW
@@ -141,7 +141,7 @@ def _epoch_millis_timestamp(value) -> datetime | None:
     """Parse numeric epoch milliseconds without accepting booleans."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if not math.isfinite(value) or value < 0:
+    if value < 0:
         return None
     try:
         parsed = datetime.fromtimestamp(value / 1000, tz=timezone.utc)

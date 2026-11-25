@@ -159,7 +159,16 @@ def test_normalizers_ignore_non_timestamp_provider_values():
     assert adzuna["posted_at"] is None
 
 
-@pytest.mark.parametrize("created_at", [-1, float("nan"), float("inf")])
+def test_normalizers_ignore_iso_timestamps_that_underflow_in_utc():
+    result = normalize_ashby(
+        {"id": "ashby-time", "publishedAt": "0001-01-01T00:00:00+01:00"},
+        company_id=2,
+    )
+
+    assert result["posted_at"] is None
+
+
+@pytest.mark.parametrize("created_at", [-1, float("nan"), float("inf"), 10**400])
 def test_lever_normalizer_rejects_invalid_epoch_timestamps(created_at):
     result = normalize_lever(
         {"id": "lever-invalid-time", "createdAt": created_at}, company_id=1
