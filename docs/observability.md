@@ -49,8 +49,19 @@ open http://localhost:3000   # anonymous viewer access enabled for local dev
 Split deliberately (`app/main.py`), for Kubernetes probe semantics ahead of
 Phase 4:
 
-- **`/health`** (liveness): is the process alive at all? Never touches DB/Redis — a slow dependency shouldn't get a healthy process killed and restarted.
-- **`/ready`** (readiness): can this instance serve traffic *right now*? Checks DB (`SELECT 1`) and Redis (`PING`), returns 503 if either fails — should pull the pod out of the Service's endpoint list, not restart it.
+- **`/health`** (liveness) returns HTTP 200 with `{"status":"ok"}` while the
+  process is running. It does not query PostgreSQL, Redis, or the embedding model.
+- **`/ready`** (readiness) returns HTTP 200 only when the database
+  (`SELECT 1`), Redis (`PING`), and embedding model are all ready. During
+  model warmup or a dependency failure it returns HTTP 503 with
+  `"status":"degraded"` and a `checks` object containing the booleans
+  `database`, `redis`, and `embedding_model`. Use those fields to distinguish
+  a cold encoder from a database or broker outage. A failed readiness check
+  removes the pod from Service traffic without triggering a restart.
+
+An encoder-dependent search routed directly to a cold API process also returns
+HTTP 503 with `Retry-After: 5`. Keyword-only search can still run against that
+process if the database is available.
 
 ## OpenTelemetry tracing
 
