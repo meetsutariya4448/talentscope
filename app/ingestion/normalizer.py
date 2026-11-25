@@ -261,7 +261,7 @@ def _optional_float(value) -> float | None:
         return None
     try:
         parsed = float(value)
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return None
     return (
         parsed

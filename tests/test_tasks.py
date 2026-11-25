@@ -436,7 +436,7 @@ def test_normalize_adzuna_rejects_negative_salary_bounds(salary):
     assert result["salary_max"] is None
 
 
-@pytest.mark.parametrize("salary", [10_000_000_000, "10000000000.00", 1e100])
+@pytest.mark.parametrize("salary", [10_000_000_000, "10000000000.00", 1e100, 10**400])
 def test_normalize_adzuna_rejects_salary_bounds_that_overflow_storage(salary):
     result = normalize_adzuna({
         "id": "adzuna-oversized-salary",
