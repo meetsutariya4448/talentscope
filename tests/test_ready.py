@@ -7,6 +7,10 @@ request paid the entire model load inside the request.
 """
 
 import threading
+from unittest.mock import Mock
+
+import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.search import encoder
 
@@ -45,6 +49,31 @@ def test_ready_lists_the_model_as_its_own_check(client):
 
     assert set(body["checks"]) == {"database", "redis", "embedding_model"}
     assert body["checks"]["embedding_model"] is True
+
+
+@pytest.mark.parametrize("failed_dependency", ["database", "redis"])
+def test_ready_reports_dependency_failures_individually(client, monkeypatch, failed_dependency):
+    db = Mock()
+    if failed_dependency == "database":
+        db.execute.side_effect = SQLAlchemyError("database unavailable")
+    monkeypatch.setattr("app.main.SessionLocal", lambda: db)
+    monkeypatch.setattr(
+        "app.main.get_redis", lambda: None if failed_dependency == "redis" else object()
+    )
+    encoder._ready.set()
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "degraded",
+        "checks": {
+            "database": failed_dependency != "database",
+            "redis": failed_dependency != "redis",
+            "embedding_model": True,
+        },
+    }
+    db.close.assert_called_once_with()
 
 
 def test_vector_search_refuses_rather_than_loading_in_request(client, monkeypatch):
