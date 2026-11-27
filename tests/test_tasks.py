@@ -28,6 +28,14 @@ def test_extract_skills_case_insensitive():
     assert "TypeScript" in skills
 
 
+def test_extract_skills_respects_unicode_word_boundaries():
+    assert "R" not in extract_skills("préRôle")
+    assert "Java" not in extract_skills("éJava Java٢")
+    assert set(extract_skills("Python_C++, .NET, Next.js")) == {
+        "Python", "C++", ".NET", "Next.js",
+    }
+
+
 def test_extract_skills_empty():
     assert extract_skills("") == []
     assert extract_skills(None) == []

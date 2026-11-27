@@ -71,15 +71,16 @@ def ensure_skills(db: Session) -> dict[str, int]:
     return dict(rows)
 
 
+# [^\W_] matches Unicode letters and numbers while keeping underscore a separator.
+_SKILL_PATTERNS = [
+    (name, re.compile(r"(?<![^\W_])" + re.escape(name.lower()) + r"(?![^\W_])"))
+    for name, _ in SKILLS
+]
+
+
 def extract_skills(text: str) -> list[str]:
     """Extract skill names from text using case-insensitive word boundary matching."""
     if not text:
         return []
-    found = []
     text_lower = text.lower()
-    for skill_name, _ in SKILLS:
-        # Use word boundary matching; handle special chars like C++, .NET, Next.js
-        pattern = r'(?<![a-zA-Z0-9])' + re.escape(skill_name.lower()) + r'(?![a-zA-Z0-9])'
-        if re.search(pattern, text_lower):
-            found.append(skill_name)
-    return found
+    return [name for name, pattern in _SKILL_PATTERNS if pattern.search(text_lower)]
