@@ -120,7 +120,11 @@ curl "localhost:8000/postings/?q=kubernetes+platform+engineer&mode=hybrid&page_s
 open http://localhost:8000/dashboard/
 ```
 
-`mode` accepts `fts`, `vector` or `hybrid`. With a key set, `POST /qa/ask` answers questions, bounded by a daily budget and per-client rate limit; exceeding either returns retrieved postings without a generated answer. Add `prometheus grafana cadvisor` to the `up` command for metrics on `:9090` and dashboards on `:3000`. Stop with `docker compose down -v`.
+`mode` accepts `fts`, `vector` or `hybrid`. With a key set, `POST /qa/ask` answers questions, bounded by a daily budget and per-client rate limit; exceeding either returns retrieved postings without a generated answer. Add `prometheus grafana cadvisor` to the `up` command for metrics on `:9090` and dashboards on `:3000`.
+
+Stop the stack with `docker compose down` to keep local data for the next run.
+For an intentional reset, `docker compose down -v` also removes the Compose volumes,
+including the local PostgreSQL database.
 
 ## Testing and scope
 
